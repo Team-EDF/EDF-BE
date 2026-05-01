@@ -1,4 +1,4 @@
-package com.EDF.EDF_BE;
+package com.edf.teamedf;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
