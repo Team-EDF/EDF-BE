@@ -1,5 +1,6 @@
 package com.edf.teamedf.common.config;
 
+import com.edf.teamedf.common.security.auth.CustomUserDetailsService;
 import com.edf.teamedf.common.security.jwt.JwtAuthenticationFilter;
 import com.edf.teamedf.common.security.jwt.JwtTokenProvider;
 import com.edf.teamedf.common.security.oauth.OAuth2SuccessHandler;
@@ -8,7 +9,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.http.HttpMethod;
+import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -32,6 +34,7 @@ public class SecurityConfig {
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final OAuth2UserService oAuth2UserService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final CustomUserDetailsService userDetailsService;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
@@ -67,7 +70,12 @@ public class SecurityConfig {
                 .oauth2Login(oauth2 -> oauth2
                         .loginPage("/login")
                         .userInfoEndpoint(u -> u.userService(oAuth2UserService))
-                        .successHandler(oAuth2SuccessHandler));
+                        .successHandler(oAuth2SuccessHandler))
+
+                // ========================================================
+                // 일반 로그인 인증 Provider 등록
+                // ========================================================
+                .userDetailsService(userDetailsService);
 
         http.addFilterBefore(
                 new JwtAuthenticationFilter(jwtTokenProvider),
@@ -80,6 +88,12 @@ public class SecurityConfig {
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
     }
+
+    @Bean
+    public AuthenticationManager authenticationManager(AuthenticationConfiguration config) throws Exception {
+        return config.getAuthenticationManager();
+    }
+
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration config = new CorsConfiguration();

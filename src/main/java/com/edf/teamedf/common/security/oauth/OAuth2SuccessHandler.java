@@ -48,18 +48,17 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                     Map.of(
                             "email", email,
                             "name", name,
-                            "role", role // 반드시 문자열
+                            "role", role
                     ));
 
             String refreshToken = jwtTokenProvider.createRefreshToken(uuid);
 
-            // Redis 저장 (uuid 기반 통일)
             tokenStore.save(
                     uuid,
                     refreshToken,
                     jwtTokenProvider.getRefreshExpSeconds());
 
-            // cookie (로컬에서는 secure=false 권장)
+
             ResponseCookie refreshCookie = ResponseCookie.from("refreshToken", refreshToken)
                     .httpOnly(true)
                     .secure(false) // localhost는 false
@@ -78,7 +77,7 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
         } catch (Exception e) {
             log.error("OAuth2 Success 처리 중 오류", e);
             try {
-                // 이미 응답이 커밋되지 않은 경우에만 에러 전송
+
                 if (!response.isCommitted()) {
                     response.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "OAuth2 처리 실패");
                 }

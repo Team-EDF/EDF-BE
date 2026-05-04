@@ -68,6 +68,19 @@ public class User {
     @Column(name = "gender")
     private Gender gender;
 
+    @Column(name = "address")
+    private String address;
+
+    @Column(name = "address_detail")
+    private String addressDetail;
+
+    @Column(name = "zip_code", length = 10)
+    private String zipCode;
+
+    public void updatePassword(String encodedPassword) {
+        this.password = encodedPassword;
+    }
+
     @PrePersist
     protected void onCreate() {
         this.uuid = UUID.randomUUID().toString();
