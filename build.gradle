@@ -35,7 +35,7 @@ dependencies {
     runtimeOnly 'org.postgresql:postgresql'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     implementation 'com.h2database:h2'
-    implementation 'com.google.firebase:firebase-admin:9.2.0'
+    implementation 'net.nurigo:sdk:4.3.0'
     implementation 'org.springframework.boot:spring-boot-starter-mail'
 
     // S3 전환 시 아래 두 줄 주석 해제 (S3Config, S3FileStorageService 도 함께 주석 해제)
