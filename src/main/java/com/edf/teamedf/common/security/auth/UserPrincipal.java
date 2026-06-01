@@ -11,7 +11,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
-public record UserPrincipal(UUID uuid, String email, String name, String role, Long userId) implements UserDetails {
+public record UserPrincipal(UUID uuid, String email, String name, String role, Long userId, String password) implements UserDetails {
 
     @Builder
     public UserPrincipal {
@@ -24,7 +24,7 @@ public record UserPrincipal(UUID uuid, String email, String name, String role, L
 
     @Override
     public String getPassword() {
-        return "";
+        return this.password != null ? this.password : "";
     }
 
     @Override
@@ -59,6 +59,7 @@ public record UserPrincipal(UUID uuid, String email, String name, String role, L
                 user.getEmail(),
                 user.getName(),
                 user.getRole().name(),
-                user.getUserId());
+                user.getUserId(),
+                user.getPassword());
     }
 }

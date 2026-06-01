@@ -32,8 +32,18 @@ public class AddressValidatorService {
                 .retrieve()
                 .body(GeocodeResponse.class);
 
-        if (response == null || !"OK".equals(response.status()) || response.results().isEmpty()) {
-            throw new IllegalArgumentException("유효하지 않은 주소입니다: " + address);
+        if (response == null) {
+            return address;
+        }
+
+        String status = response.status();
+
+        if ("REQUEST_DENIED".equals(status) || "OVER_QUERY_LIMIT".equals(status)) {
+            throw new RuntimeException("주소 검증 서비스 오류: " + status);
+        }
+
+        if (!"OK".equals(status) || response.results().isEmpty()) {
+            return address;
         }
 
         return response.results().get(0).formattedAddress();

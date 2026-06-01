@@ -97,14 +97,16 @@ kakao:
   api:
     key: ${KAKAO_API_KEY}
 
-firebase:
-  service-account-path: ${FIREBASE_SERVICE_ACCOUNT_PATH:firebase-service-account.json}
+coolsms:
+  api-key: ${COOLSMS_API_KEY}
+  api-secret: ${COOLSMS_API_SECRET}
+  sender: ${COOLSMS_SENDER}
 
 file:
   upload:
     local-dir: ${FILE_UPLOAD_DIR:./uploads}
     max-size-mb: 10
-    allowed-types:                               
+    allowed-types:
       - image/jpeg
       - image/png
       - image/webp
