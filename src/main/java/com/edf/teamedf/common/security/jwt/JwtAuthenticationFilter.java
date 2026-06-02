@@ -36,12 +36,14 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String email = claims.get("email", String.class);
             String name = claims.get("name", String.class);
             String role = claims.get("role", String.class);
+            Long userId = claims.get("userId", Long.class);
 
             UserPrincipal userDetails = UserPrincipal.builder()
                     .uuid(UUID.fromString(uuid))
                     .email(email)
                     .name(name)
                     .role(role)
+                    .userId(userId)
                     .build();
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
