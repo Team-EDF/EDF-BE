@@ -82,6 +82,15 @@ spring:
 server:
   port: 8080
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: always
+
 jwt:
   secret: ${JWT_SECRET}
   access-exp: ${JWT_ACCESS_EXP:3600}
