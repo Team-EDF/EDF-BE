@@ -48,7 +48,7 @@ public class OAuth2UserService extends DefaultOAuth2UserService {
                     .provider(userInfo.getProvider())
                     .providerId(userInfo.getProviderId())
                     .build();
-            userRepository.save(user);
+            user = userRepository.saveAndFlush(user);
             isNewUser = true;
 
             return new CustomOAuth2User(user, oAuth2User.getAttributes(), isNewUser);

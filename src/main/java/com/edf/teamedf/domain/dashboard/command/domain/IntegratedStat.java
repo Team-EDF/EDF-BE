@@ -12,6 +12,7 @@ import java.time.LocalDate;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
+@Setter
 public class IntegratedStat {
 
     @Id

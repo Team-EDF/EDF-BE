@@ -12,6 +12,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "consumption_records")
 @Getter
+@Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 @AllArgsConstructor
 @Builder
@@ -41,6 +42,9 @@ public class ConsumptionRecord {
 
     @Column(name = "ocr_error_message", length = 500)
     private String ocrErrorMessage;
+
+    @Column(name = "ocr_data", columnDefinition = "TEXT")
+    private String ocrData;
 
     @Column(name = "record_date")
     private LocalDate recordDate;

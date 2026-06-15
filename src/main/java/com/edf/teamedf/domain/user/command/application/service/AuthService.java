@@ -76,7 +76,8 @@ public class AuthService {
         String accessToken = jwtTokenProvider.createAccessToken(uuid, Map.of(
                 "email", principal.email() != null ? principal.email() : "",
                 "name", principal.name() != null ? principal.name() : "",
-                "role", principal.role() != null ? principal.role() : "MEMBER"
+                "role", principal.role() != null ? principal.role() : "MEMBER",
+                "userId", principal.userId()
         ));
         String refreshToken = jwtTokenProvider.createRefreshToken(uuid);
 
@@ -104,7 +105,8 @@ public class AuthService {
         String newAccessToken = jwtTokenProvider.createAccessToken(uuid, Map.of(
                 "email", user.getEmail() != null ? user.getEmail() : "",
                 "name", user.getName() != null ? user.getName() : "",
-                "role", user.getRole().name()
+                "role", user.getRole().name(),
+                "userId", user.getUserId()
         ));
         String newRefreshToken = jwtTokenProvider.createRefreshToken(uuid);
 
