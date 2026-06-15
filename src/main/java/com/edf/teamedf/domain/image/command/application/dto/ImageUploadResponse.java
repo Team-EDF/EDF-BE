@@ -15,9 +15,14 @@ public record ImageUploadResponse(
         StorageType storageType,
         ReferenceType referenceType,
         Long referenceId,
-        LocalDateTime createdAt
+        LocalDateTime createdAt,
+        String ocrText
 ) {
     public static ImageUploadResponse from(UploadedImage image) {
+        return from(image, null);
+    }
+
+    public static ImageUploadResponse from(UploadedImage image, String ocrText) {
         return new ImageUploadResponse(
                 image.getImageId(),
                 image.getOriginalFileName(),
@@ -27,7 +32,8 @@ public record ImageUploadResponse(
                 image.getStorageType(),
                 image.getReferenceType(),
                 image.getReferenceId(),
-                image.getCreatedAt()
+                image.getCreatedAt(),
+                ocrText
         );
     }
 }

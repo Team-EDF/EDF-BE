@@ -3,6 +3,7 @@ package com.edf.teamedf.common.config;
 import com.edf.teamedf.common.security.auth.CustomUserDetailsService;
 import com.edf.teamedf.common.security.jwt.JwtAuthenticationFilter;
 import com.edf.teamedf.common.security.jwt.JwtTokenProvider;
+import com.edf.teamedf.common.security.oauth.CustomOidcUserService;
 import com.edf.teamedf.common.security.oauth.OAuth2SuccessHandler;
 import com.edf.teamedf.common.security.oauth.OAuth2UserService;
 import jakarta.servlet.http.HttpServletResponse;
@@ -33,6 +34,7 @@ public class SecurityConfig {
 
     private final OAuth2SuccessHandler oAuth2SuccessHandler;
     private final OAuth2UserService oAuth2UserService;
+    private final CustomOidcUserService customOidcUserService;
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
 
@@ -69,7 +71,9 @@ public class SecurityConfig {
                 // ========================================================
                 .oauth2Login(oauth2 -> oauth2
                         .loginPage("/login")
-                        .userInfoEndpoint(u -> u.userService(oAuth2UserService))
+                        .userInfoEndpoint(u -> u
+                                .userService(oAuth2UserService)
+                                .oidcUserService(customOidcUserService))
                         .successHandler(oAuth2SuccessHandler))
 
                 // ========================================================

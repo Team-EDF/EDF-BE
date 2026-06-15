@@ -23,8 +23,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     @Override
     protected void doFilterInternal(HttpServletRequest req,
-            HttpServletResponse res,
-            FilterChain chain)
+                                    HttpServletResponse res,
+                                    FilterChain chain)
             throws ServletException, IOException {
 
         String token = resolveToken(req);
@@ -36,12 +36,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String email = claims.get("email", String.class);
             String name = claims.get("name", String.class);
             String role = claims.get("role", String.class);
+            Number userIdNum = claims.get("userId", Number.class);
+            Long userId = userIdNum != null ? userIdNum.longValue() : null;
 
             UserPrincipal userDetails = UserPrincipal.builder()
                     .uuid(UUID.fromString(uuid))
                     .email(email)
                     .name(name)
                     .role(role)
+                    .userId(userId)
                     .build();
 
             UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(

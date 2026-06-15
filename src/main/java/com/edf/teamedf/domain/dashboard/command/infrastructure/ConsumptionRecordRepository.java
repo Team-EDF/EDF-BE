@@ -23,4 +23,6 @@ public interface ConsumptionRecordRepository extends JpaRepository<ConsumptionRe
             @Param("userId") Long userId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    List<ConsumptionRecord> findByImageUrl(String imageUrl);
 }

@@ -29,18 +29,22 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
-            Authentication authentication) {
+                                        Authentication authentication) {
 
         try {
-            CustomOAuth2User oAuth2User = (CustomOAuth2User) authentication.getPrincipal();
-            UserPrincipal principal = oAuth2User.toUserPrincipal();
+            UserPrincipal principal;
+            if (authentication.getPrincipal() instanceof CustomOidcUser oidcUser) {
+                principal = oidcUser.toUserPrincipal();
+            } else {
+                principal = ((CustomOAuth2User) authentication.getPrincipal()).toUserPrincipal();
+            }
 
             String uuid = principal.uuid().toString();
 
             String email = principal.email() != null ? principal.email() : "";
             String name = principal.name() != null ? principal.name() : "Unknown";
             String role = principal.role() != null ? principal.role().toString() : "ROLE_USER"; // Role이 Enum일 경우
-                                                                                                // toString()
+            // toString()
 
             // Access Token 생성
             String accessToken = jwtTokenProvider.createAccessToken(
@@ -48,7 +52,8 @@ public class OAuth2SuccessHandler extends SimpleUrlAuthenticationSuccessHandler 
                     Map.of(
                             "email", email,
                             "name", name,
-                            "role", role
+                            "role", role,
+                            "userId", principal.userId()
                     ));
 
             String refreshToken = jwtTokenProvider.createRefreshToken(uuid);
