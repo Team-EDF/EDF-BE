@@ -142,5 +142,18 @@ public class AuthService {
                 .build();
     }
 
+    public TokenPair issueTokensForUser(User user) {
+        String uuid = user.getUuid();
+        String accessToken = jwtTokenProvider.createAccessToken(uuid, java.util.Map.of(
+                "email", user.getEmail() != null ? user.getEmail() : "",
+                "name", user.getName() != null ? user.getName() : "",
+                "role", user.getRole() != null ? user.getRole().name() : "MEMBER",
+                "userId", user.getUserId()
+        ));
+        String refreshToken = jwtTokenProvider.createRefreshToken(uuid);
+        tokenStore.save(uuid, refreshToken, jwtTokenProvider.getRefreshExpSeconds());
+        return new TokenPair(accessToken, buildRefreshCookie(refreshToken, jwtTokenProvider.getRefreshExpSeconds()));
+    }
+
     public record TokenPair(String accessToken, ResponseCookie refreshCookie) {}
 }

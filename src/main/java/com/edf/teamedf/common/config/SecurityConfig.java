@@ -32,9 +32,9 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final OAuth2SuccessHandler oAuth2SuccessHandler;
-    private final OAuth2UserService oAuth2UserService;
-    private final CustomOidcUserService customOidcUserService;
+//    private final OAuth2SuccessHandler oAuth2SuccessHandler;
+//    private final OAuth2UserService oAuth2UserService;
+//    private final CustomOidcUserService customOidcUserService;
     private final JwtTokenProvider jwtTokenProvider;
     private final CustomUserDetailsService userDetailsService;
 
@@ -69,12 +69,12 @@ public class SecurityConfig {
                 // ========================================================
                 // OAuth2 설정
                 // ========================================================
-                .oauth2Login(oauth2 -> oauth2
-                        .loginPage("/login")
-                        .userInfoEndpoint(u -> u
-                                .userService(oAuth2UserService)
-                                .oidcUserService(customOidcUserService))
-                        .successHandler(oAuth2SuccessHandler))
+//                .oauth2Login(oauth2 -> oauth2
+//                        .loginPage("/login")
+//                        .userInfoEndpoint(u -> u
+//                                .userService(oAuth2UserService)
+//                                .oidcUserService(customOidcUserService))
+//                        .successHandler(oAuth2SuccessHandler))
 
                 // ========================================================
                 // 일반 로그인 인증 Provider 등록
