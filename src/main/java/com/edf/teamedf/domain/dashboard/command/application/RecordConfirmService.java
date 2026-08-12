@@ -6,8 +6,6 @@ import com.edf.teamedf.domain.dashboard.command.domain.IntegratedStat;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.CategoryStatRepository;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionRecordRepository;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.IntegratedStatRepository;
-import com.edf.teamedf.domain.image.command.domain.UploadedImage;
-import com.edf.teamedf.domain.image.command.infrastructure.UploadedImageRepository;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -28,24 +26,20 @@ public class RecordConfirmService {
     private final ConsumptionRecordRepository consumptionRecordRepository;
     private final IntegratedStatRepository integratedStatRepository;
     private final CategoryStatRepository categoryStatRepository;
-    private final UploadedImageRepository uploadedImageRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public void confirmByImageId(Long imageId, Long userId) {
-        UploadedImage image = uploadedImageRepository.findById(imageId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Image not found"));
-
-        ConsumptionRecord record = consumptionRecordRepository.findByImageUrl(image.getFileUrl())
-                .stream()
-                .findFirst()
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Record not found for this image"));
+    // 이미지 저장을 AI(Python)가 담당하게 되면서 영수증은 더 이상 UploadedImage 행을 갖지 않는다.
+    // consumption_records.record_id를 기준으로 직접 확인한다.
+    public void confirmByRecordId(Long recordId, Long userId) {
+        ConsumptionRecord record = consumptionRecordRepository.findById(recordId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "소비 기록을 찾을 수 없습니다."));
 
         if (!record.getUser().getUserId().equals(userId)) {
-            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access denied");
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "본인의 소비 기록만 확인할 수 있습니다.");
         }
 
         if (!"WAITING_CONFIRM".equals(record.getOcrStatus())) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Record is not waiting for confirmation");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "확인 대기 상태(WAITING_CONFIRM)인 기록이 아닙니다.");
         }
 
         try {
