@@ -2,17 +2,17 @@ package com.edf.teamedf.domain.chat.application;
 
 import com.edf.teamedf.domain.chat.presentation.dto.ChatRequest;
 import com.edf.teamedf.domain.chat.presentation.dto.ChatResponse;
+import com.edf.teamedf.domain.dashboard.command.domain.ConsumptionRecord;
+import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionRecordRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.web.server.ResponseStatusException;
 
-import com.edf.teamedf.domain.dashboard.command.application.service.DashboardService;
-import com.edf.teamedf.domain.dashboard.command.application.dto.MonthlySpendingResponse;
-import com.edf.teamedf.domain.dashboard.command.application.dto.CategoryCarbonRatioResponse;
-import java.util.List;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -20,48 +20,37 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatService {
 
-    private final DashboardService dashboardService;
+    // main.py: feedback.router는 prefix 없이 등록됨 -> 실제 경로는 /feedback/chat (/api/feedback/chat 아님)
+    private static final String AI_FEEDBACK_CHAT_URL = "http://ai:8000/feedback/chat";
+
+    private final ConsumptionRecordRepository consumptionRecordRepository;
 
     public ChatResponse sendChatMessage(Long userId, ChatRequest request) {
+        ConsumptionRecord record = consumptionRecordRepository.findById(request.getRecordId())
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "소비 기록을 찾을 수 없습니다."));
+
+        if (!record.getUser().getUserId().equals(userId)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "본인의 소비 기록에 대해서만 피드백을 요청할 수 있습니다.");
+        }
+
         RestTemplate restTemplate = new RestTemplate();
-        String aiUrl = "http://ai:8000/api/feedback/chat";
 
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
+        // AI의 FeedbackChatRequest 스키마: record_id(필수, >0), message(필수, 1~1000자)
         Map<String, Object> aiRequest = new HashMap<>();
-        aiRequest.put("user_id", userId);
+        aiRequest.put("record_id", request.getRecordId());
         aiRequest.put("message", request.getMessage());
-
-        MonthlySpendingResponse spending = dashboardService.getMonthlySpending(userId);
-        List<CategoryCarbonRatioResponse> ratios = dashboardService.getCategoryCarbonRatios(userId);
-
-        Map<String, Float> categoryCarbonSummary = new HashMap<>();
-        for (CategoryCarbonRatioResponse r : ratios) {
-            categoryCarbonSummary.put(r.categoryName(), r.categoryCarbon());
-        }
-
-        Map<String, Object> summary = new HashMap<>();
-        if (spending != null) {
-            summary.put("total_carbon_kg", spending.totalCarbon());
-        } else {
-            summary.put("total_carbon_kg", 0f);
-        }
-        summary.put("category_carbon_summary", categoryCarbonSummary);
-
-        aiRequest.put("consumption_summary", summary);
 
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(aiRequest, headers);
 
         try {
-            // Wait! In main.py, the route is @app.post("/feedback/chat") not "/api/feedback/chat"
-            aiUrl = "http://ai:8000/feedback/chat";
-            Map<String, Object> aiResponse = restTemplate.postForObject(aiUrl, entity, Map.class);
+            Map<String, Object> aiResponse = restTemplate.postForObject(AI_FEEDBACK_CHAT_URL, entity, Map.class);
             if (aiResponse != null) {
-                Long chatId = null;
-                if (aiResponse.get("chat_id") != null) {
-                    chatId = Long.valueOf(aiResponse.get("chat_id").toString());
-                }
+                Long chatId = aiResponse.get("chat_id") != null
+                        ? Long.valueOf(aiResponse.get("chat_id").toString())
+                        : null;
                 String feedback = (String) aiResponse.get("feedback");
                 return new ChatResponse(chatId, feedback);
             }

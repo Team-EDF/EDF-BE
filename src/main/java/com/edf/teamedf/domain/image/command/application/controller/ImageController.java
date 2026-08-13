@@ -1,7 +1,6 @@
 package com.edf.teamedf.domain.image.command.application.controller;
 
 import com.edf.teamedf.common.security.auth.UserPrincipal;
-import com.edf.teamedf.domain.dashboard.command.application.RecordConfirmService;
 import com.edf.teamedf.domain.image.command.application.dto.ImageUploadResponse;
 import com.edf.teamedf.domain.image.command.application.service.ImageUploadService;
 import com.edf.teamedf.domain.image.command.domain.ReferenceType;
@@ -21,7 +20,6 @@ import java.util.List;
 public class ImageController {
 
     private final ImageUploadService imageUploadService;
-    private final RecordConfirmService recordConfirmService;
 
     @PostMapping(value = "/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<ImageUploadResponse> upload(
@@ -39,14 +37,6 @@ public class ImageController {
             @PathVariable Long imageId) {
         imageUploadService.delete(principal.userId(), imageId);
         return ResponseEntity.noContent().build();
-    }
-
-    @PostMapping("/{imageId}/confirm")
-    public ResponseEntity<Void> confirm(
-            @AuthenticationPrincipal UserPrincipal principal,
-            @PathVariable Long imageId) {
-        recordConfirmService.confirmByImageId(imageId, principal.userId());
-        return ResponseEntity.ok().build();
     }
 
     @GetMapping
