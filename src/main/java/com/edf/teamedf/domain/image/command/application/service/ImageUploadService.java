@@ -13,6 +13,7 @@ import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -40,6 +41,9 @@ public class ImageUploadService {
     private final UserRepository userRepository;
     private final ConsumptionRecordRepository consumptionRecordRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    @Value("${ai.service-url}")
+    private String aiServiceUrl;
 
     @Transactional
     public ImageUploadResponse upload(Long userId, MultipartFile file,
@@ -152,7 +156,7 @@ public class ImageUploadService {
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
         RestTemplate restTemplate = new RestTemplate();
-        return restTemplate.postForObject("http://ai:8000/api/ocr/classify", requestEntity, Map.class);
+        return restTemplate.postForObject(aiServiceUrl + "/api/ocr/classify", requestEntity, Map.class);
     }
 
     private ConsumptionRecord buildRecordFromAiResponse(

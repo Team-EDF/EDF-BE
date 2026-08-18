@@ -5,6 +5,7 @@ import com.edf.teamedf.domain.chat.presentation.dto.ChatResponse;
 import com.edf.teamedf.domain.dashboard.command.domain.ConsumptionRecord;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionRecordRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -20,8 +21,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class ChatService {
 
-    // main.py: feedback.router는 prefix 없이 등록됨 -> 실제 경로는 /feedback/chat (/api/feedback/chat 아님)
-    private static final String AI_FEEDBACK_CHAT_URL = "http://ai:8000/feedback/chat";
+    @Value("${ai.service-url}")
+    private String aiServiceUrl;
 
     private final ConsumptionRecordRepository consumptionRecordRepository;
 
@@ -46,7 +47,7 @@ public class ChatService {
         HttpEntity<Map<String, Object>> entity = new HttpEntity<>(aiRequest, headers);
 
         try {
-            Map<String, Object> aiResponse = restTemplate.postForObject(AI_FEEDBACK_CHAT_URL, entity, Map.class);
+            Map<String, Object> aiResponse = restTemplate.postForObject(aiServiceUrl + "/feedback/chat", entity, Map.class);
             if (aiResponse != null) {
                 Long chatId = aiResponse.get("chat_id") != null
                         ? Long.valueOf(aiResponse.get("chat_id").toString())
