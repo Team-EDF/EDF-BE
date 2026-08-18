@@ -93,6 +93,8 @@ management:
   endpoint:
     health:
       show-details: always
+      probes:
+        enabled: true
 
 jwt:
   secret: ${JWT_SECRET}
