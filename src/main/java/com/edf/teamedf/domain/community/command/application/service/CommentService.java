@@ -8,6 +8,8 @@ import com.edf.teamedf.domain.community.command.domain.Comment;
 import com.edf.teamedf.domain.community.command.domain.Post;
 import com.edf.teamedf.domain.community.command.infrastructure.CommentRepository;
 import com.edf.teamedf.domain.community.command.infrastructure.PostRepository;
+import com.edf.teamedf.domain.notification.command.application.service.NotificationService;
+import com.edf.teamedf.domain.notification.command.domain.NotificationType;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -26,6 +28,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public CommentResponse createComment(UserPrincipal principal, Long postId, CommentCreateRequest request) {
@@ -45,14 +48,41 @@ public class CommentService {
                 .parent(parent)
                 .content(request.content())
                 .build();
-        return CommentResponse.from(commentRepository.save(comment));
+        Comment saved = commentRepository.save(comment);
+
+        String preview = request.content() == null ? "" : request.content().trim();
+        if (preview.length() > 60) {
+            preview = preview.substring(0, 60) + "...";
+        }
+
+        if (parent != null) {
+            // 답글 → 부모 댓글 작성자에게
+            Long parentAuthorId = parent.getUser() == null ? null : parent.getUser().getUserId();
+            notificationService.notifyOther(
+                    parentAuthorId, principal.userId(), NotificationType.REPLY,
+                    "새로운 답글", user.getName() + "님이 회원님의 댓글에 답글을 남겼어요: " + preview,
+                    "post", post.getPostId(), user.getName());
+        }
+
+        // 게시글 작성자에게 (답글이라도 원글 작성자가 다르면 알림)
+        Long postAuthorId = post.getUser() == null ? null : post.getUser().getUserId();
+        boolean sameAsParentAuthor = parent != null && parent.getUser() != null
+                && parent.getUser().getUserId().equals(postAuthorId);
+        if (!sameAsParentAuthor) {
+            notificationService.notifyOther(
+                    postAuthorId, principal.userId(), NotificationType.COMMENT,
+                    "새로운 댓글", user.getName() + "님이 회원님의 글에 댓글을 남겼어요: " + preview,
+                    "post", post.getPostId(), user.getName());
+        }
+
+        return CommentResponse.from(saved, principal.userId());
     }
 
-    public List<CommentResponse> getComments(Long postId) {
+    public List<CommentResponse> getComments(Long postId, Long viewerId) {
         getActivePost(postId);
         return commentRepository.findAllByPost_PostIdAndIsDeletedFalseOrderByCreatedAtAsc(postId)
                 .stream()
-                .map(CommentResponse::from)
+                .map(c -> CommentResponse.from(c, viewerId))
                 .toList();
     }
 
@@ -61,7 +91,7 @@ public class CommentService {
         Comment comment = getActiveComment(commentId);
         validateOwner(comment, principal.userId());
         comment.update(request.content());
-        return CommentResponse.from(comment);
+        return CommentResponse.from(comment, principal.userId());
     }
 
     @Transactional

@@ -50,4 +50,26 @@ public class UserRanking {
 
     @Column(name = "total_spending", nullable = false)
     private Integer totalSpending;
+
+    /**
+     * 친환경 활동 인증으로 절감량/점수를 누적한다.
+     *
+     * @param addedCarbon 이번에 절감한 CO2 (kg)
+     * @param addedScore  이번에 획득한 점수
+     */
+    public void accumulate(float addedCarbon, float addedScore) {
+        this.totalSaving = (this.totalSaving == null ? 0f : this.totalSaving) + addedCarbon;
+        this.score = (this.score == null ? 0f : this.score) + addedScore;
+        if (this.totalCarbon == null) {
+            this.totalCarbon = 0f;
+        }
+        if (this.totalSpending == null) {
+            this.totalSpending = 0;
+        }
+    }
+
+    /** 재계산된 순위를 반영한다. */
+    public void updateRankPosition(int rankPosition) {
+        this.rankPosition = rankPosition;
+    }
 }

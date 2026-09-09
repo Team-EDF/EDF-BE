@@ -6,6 +6,8 @@ import com.edf.teamedf.domain.community.command.domain.Post;
 import com.edf.teamedf.domain.community.command.domain.PostLike;
 import com.edf.teamedf.domain.community.command.infrastructure.PostLikeRepository;
 import com.edf.teamedf.domain.community.command.infrastructure.PostRepository;
+import com.edf.teamedf.domain.notification.command.application.service.NotificationService;
+import com.edf.teamedf.domain.notification.command.domain.NotificationType;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -23,6 +25,7 @@ public class PostLikeService {
     private final PostLikeRepository postLikeRepository;
     private final PostRepository postRepository;
     private final UserRepository userRepository;
+    private final NotificationService notificationService;
 
     @Transactional
     public LikeResponse toggleLike(UserPrincipal principal, Long postId) {
@@ -43,11 +46,28 @@ public class PostLikeService {
         PostLike like = PostLike.builder().post(post).user(user).build();
         postLikeRepository.save(like);
         post.incrementLikeCount();
+
+        // 글쓴이에게 알림 (본인 글이면 발송하지 않음)
+        Long authorId = post.getUser() == null ? null : post.getUser().getUserId();
+        notificationService.notifyOther(
+                authorId,
+                principal.userId(),
+                NotificationType.LIKE,
+                "새로운 좋아요",
+                user.getName() + "님이 회원님의 글을 좋아합니다.",
+                "post",
+                post.getPostId(),
+                user.getName()
+        );
+
         return new LikeResponse(true, post.getLikeCount());
     }
 
     @Transactional(readOnly = true)
     public boolean isLiked(UserPrincipal principal, Long postId) {
+        if (principal == null || principal.userId() == null) {
+            return false;
+        }
         return postLikeRepository.existsByPost_PostIdAndUser_UserId(postId, principal.userId());
     }
 }
