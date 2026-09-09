@@ -81,6 +81,43 @@ public class User {
         this.password = encodedPassword;
     }
 
+    /**
+     * 프로필 수정. null 로 전달된 필드는 변경하지 않는다(부분 수정).
+     */
+    public void updateProfile(String name,
+                              String bio,
+                              String phone,
+                              String profileImageUrl,
+                              Gender gender,
+                              String address,
+                              String addressDetail,
+                              String zipCode) {
+        if (name != null && !name.isBlank()) {
+            this.name = name.trim();
+        }
+        if (bio != null) {
+            this.bio = bio.isBlank() ? null : bio.trim();
+        }
+        if (phone != null) {
+            this.phone = phone.isBlank() ? null : phone.trim();
+        }
+        if (profileImageUrl != null) {
+            this.profileImageUrl = profileImageUrl.isBlank() ? null : profileImageUrl.trim();
+        }
+        if (gender != null) {
+            this.gender = gender;
+        }
+        if (address != null) {
+            this.address = address.isBlank() ? null : address.trim();
+        }
+        if (addressDetail != null) {
+            this.addressDetail = addressDetail.isBlank() ? null : addressDetail.trim();
+        }
+        if (zipCode != null) {
+            this.zipCode = zipCode.isBlank() ? null : zipCode.trim();
+        }
+    }
+
     @PrePersist
     protected void onCreate() {
         this.uuid = UUID.randomUUID().toString();

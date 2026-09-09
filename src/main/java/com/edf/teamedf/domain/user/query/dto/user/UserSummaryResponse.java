@@ -13,6 +13,7 @@ public record UserSummaryResponse(
         User.Gender gender,
         Boolean enabled,
         String profileImageUrl,
+        String bio,
         LocalDateTime createdAt
 ) {
     public static UserSummaryResponse from(User user) {
@@ -25,6 +26,7 @@ public record UserSummaryResponse(
                 user.getGender(),
                 user.getEnabled(),
                 user.getProfileImageUrl(),
+                user.getBio(),
                 user.getCreatedAt()
         );
     }
