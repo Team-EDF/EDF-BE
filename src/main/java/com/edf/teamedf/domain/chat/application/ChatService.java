@@ -39,8 +39,10 @@ public class ChatService {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
 
-        // AI의 FeedbackChatRequest 스키마: record_id(필수, >0), message(필수, 1~1000자)
+        // AI의 FeedbackChatRequest 스키마: user_id(필수, >0), record_id(선택, >0), message(필수, 1~1000자)
+        // user_id는 필수 필드이므로 반드시 함께 전달해야 한다 (누락 시 AI 서버에서 422 응답).
         Map<String, Object> aiRequest = new HashMap<>();
+        aiRequest.put("user_id", userId);
         aiRequest.put("record_id", request.getRecordId());
         aiRequest.put("message", request.getMessage());
 

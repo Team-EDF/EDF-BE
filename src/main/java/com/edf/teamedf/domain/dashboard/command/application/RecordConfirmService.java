@@ -76,7 +76,8 @@ public class RecordConfirmService {
                     Map<String, Object> category = (Map<String, Object>) item.get("category");
                     if (category == null) continue;
 
-                    Long catId = category.get("category_id") != null ? ((Number) category.get("category_id")).longValue() : 0L;
+                    // AI 응답의 CategoryResult 스키마는 "category_id"가 아니라 "main_category_id"를 사용한다.
+                    Long catId = category.get("main_category_id") != null ? ((Number) category.get("main_category_id")).longValue() : 0L;
                     String catName = (String) category.get("main_name");
                     if (catName == null) catName = "미분류";
 
@@ -86,7 +87,7 @@ public class RecordConfirmService {
                     updateOrCreateCategoryStat(monthlyStat, catId, catName, carbon, spending);
                 }
             } else if (merchantCategory != null) {
-                Long catId = merchantCategory.get("category_id") != null ? ((Number) merchantCategory.get("category_id")).longValue() : 0L;
+                Long catId = merchantCategory.get("main_category_id") != null ? ((Number) merchantCategory.get("main_category_id")).longValue() : 0L;
                 String catName = (String) merchantCategory.get("main_name");
                 if (catName == null) catName = "미분류";
 
