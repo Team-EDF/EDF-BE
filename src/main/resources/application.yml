@@ -107,6 +107,14 @@ google:
   maps:
     id: ${GOOGLE_MAPS_ID}
 
+# GPS 이동수단 인증(/dashboard/certify-transit) 서버 측 거리 검증용.
+# 현재는 프론트가 계산한 distanceKm/savedCarbon 값을 그대로 신뢰하고 있어,
+# 추후 Directions/Distance Matrix API로 이동거리를 재검증하려면 이 키가 필요하다.
+# 값이 따로 없으면 GOOGLE_API_KEY 를 재사용한다(Google Maps Platform 키는 API 여러 개에 공용 가능).
+transit:
+  distance-validation:
+    api-key: ${GOOGLE_DISTANCE_API_KEY:${GOOGLE_API_KEY}}
+
 kakao:
   api:
     key: ${KAKAO_API_KEY}
