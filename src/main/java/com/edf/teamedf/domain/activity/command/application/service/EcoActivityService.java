@@ -4,6 +4,8 @@ import com.edf.teamedf.domain.activity.command.application.dto.CertifyRequest;
 import com.edf.teamedf.domain.activity.command.application.dto.CertifyResponse;
 import com.edf.teamedf.domain.activity.command.application.dto.EcoActivityResponse;
 import com.edf.teamedf.domain.activity.command.application.dto.EcoActivitySummaryResponse;
+import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyRequest;
+import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyResponse;
 import com.edf.teamedf.domain.activity.command.domain.CharacterLevel;
 import com.edf.teamedf.domain.activity.command.domain.EcoActivity;
 import com.edf.teamedf.domain.activity.command.domain.EcoCategory;
@@ -43,6 +45,7 @@ public class EcoActivityService {
 
     private static final String PERIOD_MONTHLY = "MONTHLY";
     private static final String RANKING_TYPE_CARBON = "탄소절감";
+    private static final Set<String> VALID_TRANSIT_MODES = Set.of("WALK", "TRANSIT", "CAR");
 
     private final EcoActivityRepository ecoActivityRepository;
     private final UserRepository userRepository;
@@ -107,6 +110,88 @@ public class EcoActivityService {
         notifyIfEvolved(userId, totalCarbon - category.getSavedCarbon(), totalCarbon);
 
         return CertifyResponse.of(activity, totalCarbon, totalPoints);
+    }
+
+    /**
+     * GPS 기반 이동수단(도보/대중교통/자차) 탄소 절감 인증.
+     *
+     * <p>이동거리·절감량·포인트는 프론트가 GPS로 이미 계산해 보낸 값을 그대로 신뢰한다
+     * (EcoCategory 처럼 카테고리별 고정값이 아니라 실제 이동거리에 비례하는 동적 값이기 때문).
+     * 경로(route)는 재조회 용도가 없어 저장하지 않는다.</p>
+     */
+    @Transactional
+    public TransitCertifyResponse certifyTransit(Long userId, TransitCertifyRequest request) {
+        if (request == null || request.mode() == null || request.mode().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이동 수단(mode)은 필수입니다.");
+        }
+        String mode = request.mode().trim().toUpperCase();
+        if (!VALID_TRANSIT_MODES.contains(mode)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 이동 수단입니다: " + mode);
+        }
+
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        float distanceKm = request.distanceKm() == null ? 0f : Math.max(0f, request.distanceKm());
+        float savedCarbon = request.savedCarbon() == null ? 0f : Math.max(0f, request.savedCarbon());
+        int pointsEarned = request.pointsEarned() == null ? 0 : Math.max(0, request.pointsEarned());
+        String modeLabel = transitModeLabel(mode);
+
+        String comment = String.format("GPS 이동 추적 · %.2fkm · %s",
+                distanceKm, formatDuration(request.durationSec()));
+        if (comment.length() > 500) {
+            comment = comment.substring(0, 500);
+        }
+
+        EcoActivity activity = EcoActivity.builder()
+                .user(user)
+                .category(EcoCategory.TRANSIT)
+                .imageUrl(null)
+                .comment(comment)
+                .savedCarbon(savedCarbon)
+                .pointsEarned(pointsEarned)
+                .detectionName("GPS 이동 추적 (" + modeLabel + ")")
+                .status(EcoActivity.Status.APPROVED)
+                .build();
+
+        ecoActivityRepository.save(activity);
+
+        if (savedCarbon > 0f || pointsEarned > 0) {
+            applyToRanking(user, savedCarbon, pointsEarned);
+        }
+
+        float totalCarbonAfter = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
+        float totalCarbonBefore = totalCarbonAfter - savedCarbon;
+
+        notificationService.notify(
+                userId,
+                NotificationType.CERTIFY,
+                "이동 기록이 저장됐어요",
+                String.format("%s 이동으로 %.1fkg CO₂를 절감하고 %dP를 받았어요.",
+                        modeLabel, savedCarbon, pointsEarned),
+                "activity",
+                activity.getActivityId(),
+                null
+        );
+
+        notifyIfEvolved(userId, totalCarbonBefore, totalCarbonAfter);
+
+        return TransitCertifyResponse.of(savedCarbon, pointsEarned);
+    }
+
+    private static String transitModeLabel(String mode) {
+        return switch (mode) {
+            case "WALK" -> "도보";
+            case "CAR" -> "자차";
+            default -> "대중교통";
+        };
+    }
+
+    private static String formatDuration(Integer durationSec) {
+        int sec = durationSec == null ? 0 : Math.max(0, durationSec);
+        int minutes = sec / 60;
+        int seconds = sec % 60;
+        return String.format("%d분 %02d초", minutes, seconds);
     }
 
     /** 이번 인증으로 캐릭터가 진화했다면 레벨업 알림을 보낸다. */

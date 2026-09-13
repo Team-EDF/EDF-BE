@@ -4,6 +4,8 @@ import com.edf.teamedf.common.security.auth.AuthUtils;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.domain.activity.command.application.dto.CertifyRequest;
 import com.edf.teamedf.domain.activity.command.application.dto.CertifyResponse;
+import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyRequest;
+import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyResponse;
 import com.edf.teamedf.domain.activity.command.application.service.EcoActivityService;
 import com.edf.teamedf.domain.dashboard.command.application.dto.CarbonScoreResponse;
 import com.edf.teamedf.domain.dashboard.command.application.dto.CategoryCarbonRatioResponse;
@@ -69,5 +71,19 @@ public class DashboardController {
             @RequestBody CertifyRequest request) {
         Long userId = AuthUtils.requireUserId(principal);
         return ResponseEntity.ok(ecoActivityService.certify(userId, request));
+    }
+
+    /**
+     * GPS 기반 이동수단(도보/대중교통/자차) 탄소 절감 인증.
+     *
+     * <p>프론트엔드(api/transit.js)가 GPS로 계산한 거리/절감량/포인트를 그대로 전달한다.
+     * {@code /certify} 와 달리 카테고리별 고정값이 아니라 이동거리에 비례하는 동적 값을 저장한다.</p>
+     */
+    @PostMapping("/certify-transit")
+    public ResponseEntity<TransitCertifyResponse> certifyTransit(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @RequestBody TransitCertifyRequest request) {
+        Long userId = AuthUtils.requireUserId(principal);
+        return ResponseEntity.ok(ecoActivityService.certifyTransit(userId, request));
     }
 }
