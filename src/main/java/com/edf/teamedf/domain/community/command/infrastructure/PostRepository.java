@@ -13,11 +13,17 @@ public interface PostRepository extends JpaRepository<Post, Long> {
 
     Page<Post> findAllByIsDeletedFalseOrderByCreatedAtDesc(Pageable pageable);
 
+    /** 카테고리별 최신순. */
+    Page<Post> findAllByIsDeletedFalseAndCategoryOrderByCreatedAtDesc(Post.Category category, Pageable pageable);
+
     /** 내가 작성한 글. */
     Page<Post> findAllByUser_UserIdAndIsDeletedFalseOrderByCreatedAtDesc(Long userId, Pageable pageable);
 
     /** 인기순 (좋아요 → 조회수). */
     Page<Post> findAllByIsDeletedFalseOrderByLikeCountDescCreatedAtDesc(Pageable pageable);
+
+    /** 카테고리별 인기순 (좋아요 → 조회수). */
+    Page<Post> findAllByIsDeletedFalseAndCategoryOrderByLikeCountDescCreatedAtDesc(Post.Category category, Pageable pageable);
 
     /** 제목/본문 검색. */
     @Query("""

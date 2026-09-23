@@ -45,6 +45,7 @@ public class PostService {
                 .user(user)
                 .title(request.title())
                 .content(request.content())
+                .category(request.category() != null ? request.category() : Post.Category.FREE)
                 .build();
         return PostResponse.from(postRepository.save(post), 0L, false, user.getUserId());
     }
@@ -52,14 +53,19 @@ public class PostService {
     /**
      * 게시글 목록.
      *
-     * @param sort   latest | popular
-     * @param search 제목/본문 검색어 (선택)
+     * @param sort     latest | popular
+     * @param search   제목/본문 검색어 (선택)
+     * @param category 게시판 카테고리 (선택, null 이면 전체)
      */
-    public Page<PostSummaryResponse> getPosts(Long viewerId, String sort, String search, Pageable pageable) {
+    public Page<PostSummaryResponse> getPosts(Long viewerId, String sort, String search, Post.Category category, Pageable pageable) {
         Pageable page = paging(pageable);
         Page<Post> posts;
         if (search != null && !search.isBlank()) {
             posts = postRepository.search(search.trim(), page);
+        } else if (category != null) {
+            posts = "popular".equalsIgnoreCase(sort)
+                    ? postRepository.findAllByIsDeletedFalseAndCategoryOrderByLikeCountDescCreatedAtDesc(category, page)
+                    : postRepository.findAllByIsDeletedFalseAndCategoryOrderByCreatedAtDesc(category, page);
         } else if ("popular".equalsIgnoreCase(sort)) {
             posts = postRepository.findAllByIsDeletedFalseOrderByLikeCountDescCreatedAtDesc(page);
         } else {

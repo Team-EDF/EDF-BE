@@ -31,6 +31,11 @@ public class Post {
     @Column(name = "content", length = 500, nullable = false)
     private String content;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category", nullable = false)
+    @Builder.Default
+    private Category category = Category.FREE;
+
     @Column(name = "view_count", nullable = false)
     @Builder.Default
     private int viewCount = 0;
@@ -70,5 +75,9 @@ public class Post {
 
     public void delete() {
         this.isDeleted = true;
+    }
+
+    public enum Category {
+        INTRO, QNA, FREE
     }
 }

@@ -13,6 +13,7 @@ import com.edf.teamedf.domain.community.command.application.dto.post.PostUpdateR
 import com.edf.teamedf.domain.community.command.application.service.CommentService;
 import com.edf.teamedf.domain.community.command.application.service.PostLikeService;
 import com.edf.teamedf.domain.community.command.application.service.PostService;
+import com.edf.teamedf.domain.community.command.domain.Post;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -48,17 +49,19 @@ public class PostController {
     /**
      * 게시글 목록.
      *
-     * @param sort   latest(기본) | popular
-     * @param search 제목/본문 검색어
+     * @param sort     latest(기본) | popular
+     * @param search   제목/본문 검색어
+     * @param category 게시판 카테고리 (INTRO | QNA | FREE, 선택)
      */
     @GetMapping
     public ResponseEntity<Page<PostSummaryResponse>> getPosts(
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(required = false, defaultValue = "latest") String sort,
             @RequestParam(required = false) String search,
+            @RequestParam(required = false) Post.Category category,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Long viewerId = AuthUtils.optionalUserId(principal);
-        return ResponseEntity.ok(postService.getPosts(viewerId, sort, search, pageable));
+        return ResponseEntity.ok(postService.getPosts(viewerId, sort, search, category, pageable));
     }
 
     /** 내가 작성한 글. */
