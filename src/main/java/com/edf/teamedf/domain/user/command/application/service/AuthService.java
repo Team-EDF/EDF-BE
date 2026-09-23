@@ -41,6 +41,12 @@ public class AuthService {
         if (userRepository.findByEmail(request.email()).isPresent()) {
             throw new IllegalArgumentException("이미 사용 중인 이메일입니다.");
         }
+        if (userRepository.existsByNickname(request.nickname())) {
+            throw new IllegalArgumentException("이미 사용 중인 닉네임입니다.");
+        }
+        if (!Boolean.TRUE.equals(request.termsAgreed()) || !Boolean.TRUE.equals(request.privacyAgreed())) {
+            throw new IllegalArgumentException("필수 약관에 동의해야 합니다.");
+        }
 
         String verifiedEmail = emailVerificationService.consumeVerifiedEmail(request.emailVerificationToken());
         if (!verifiedEmail.equals(request.email())) {
@@ -54,11 +60,17 @@ public class AuthService {
                 .email(request.email())
                 .password(passwordEncoder.encode(request.password()))
                 .name(request.name())
+                .nickname(request.nickname())
+                .birthDate(request.birthDate())
+                .gender(request.gender())
                 .phone(phone)
                 .address(validatedAddress)
                 .addressDetail(request.addressDetail())
                 .zipCode(request.zipCode())
                 .role(request.role() != null ? request.role() : User.Role.MEMBER)
+                .termsAgreed(request.termsAgreed())
+                .privacyAgreed(request.privacyAgreed())
+                .marketingAgreed(request.marketingAgreed() != null ? request.marketingAgreed() : Boolean.FALSE)
                 .provider("local")
                 .enabled(true)
                 .build();
