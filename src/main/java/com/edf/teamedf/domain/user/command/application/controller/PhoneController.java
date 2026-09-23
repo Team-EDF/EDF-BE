@@ -22,23 +22,23 @@ public class PhoneController {
     /**
      * 1단계: SMS 인증번호 발송
      * POST /auth/phone/send
-     * Body: { "phoneNumber": "01012345678" }
+     * Body: { "phone": "01012345678" }
      */
     @PostMapping("/send")
     public ResponseEntity<Void> send(@Valid @RequestBody PhoneSendRequest request) {
-        phoneVerificationService.sendOtp(request.phoneNumber());
+        phoneVerificationService.sendOtp(request.phone());
         return ResponseEntity.ok().build();
     }
 
     /**
-     * 2단계: 인증번호 검증 → verificationToken 발급
+     * 2단계: 인증번호 검증 → phoneVerificationToken 발급
      * POST /auth/phone/verify
-     * Body: { "phoneNumber": "01012345678", "code": "123456" }
+     * Body: { "phone": "01012345678", "code": "123456" }
      */
     @PostMapping("/verify")
     public ResponseEntity<PhoneVerifyResponse> verify(@Valid @RequestBody PhoneVerifyRequest request) {
         String verificationToken = phoneVerificationService.verifyOtpAndIssueToken(
-                request.phoneNumber(), request.code());
+                request.phone(), request.code());
         return ResponseEntity.ok(new PhoneVerifyResponse(verificationToken));
     }
 }
