@@ -3,6 +3,7 @@ package com.edf.teamedf.domain.user.command.application.controller;
 import com.edf.teamedf.domain.user.command.application.dto.auth.AppOAuthLoginRequest;
 import com.edf.teamedf.domain.user.command.application.dto.auth.AuthResponse;
 import com.edf.teamedf.domain.user.command.application.dto.auth.LoginRequest;
+import com.edf.teamedf.domain.user.command.application.dto.auth.NicknameCheckResponse;
 import com.edf.teamedf.domain.user.command.application.dto.auth.SignUpRequest;
 import com.edf.teamedf.domain.user.command.application.service.AppOAuth2Service;
 import com.edf.teamedf.domain.user.command.application.service.AuthService;
@@ -26,6 +27,16 @@ public class AuthController {
     public ResponseEntity<Void> signUp(@Valid @RequestBody SignUpRequest request) {
         authService.signUp(request);
         return ResponseEntity.status(HttpStatus.CREATED).build();
+    }
+
+    /**
+     * 닉네임 중복 확인
+     * GET /auth/nickname/check?nickname=xxx
+     */
+    @GetMapping("/nickname/check")
+    public ResponseEntity<NicknameCheckResponse> checkNickname(@RequestParam String nickname) {
+        boolean available = authService.isNicknameAvailable(nickname);
+        return ResponseEntity.ok(new NicknameCheckResponse(available));
     }
 
     @PostMapping("/login")

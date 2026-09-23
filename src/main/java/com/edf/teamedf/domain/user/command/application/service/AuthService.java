@@ -66,6 +66,10 @@ public class AuthService {
         userRepository.save(user);
     }
 
+    public boolean isNicknameAvailable(String nickname) {
+        return !userRepository.existsByNickname(nickname);
+    }
+
     public TokenPair login(LoginRequest request) {
         var authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(request.email(), request.password()));
