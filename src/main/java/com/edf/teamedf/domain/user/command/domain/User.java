@@ -5,6 +5,7 @@ import lombok.*;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 @Entity
@@ -77,6 +78,21 @@ public class User {
     @Column(name = "zip_code", length = 10)
     private String zipCode;
 
+    @Column(name = "nickname", length = 30, unique = true)
+    private String nickname;
+
+    @Column(name = "birth_date")
+    private LocalDate birthDate;
+
+    @Column(name = "terms_agreed")
+    private Boolean termsAgreed;
+
+    @Column(name = "privacy_agreed")
+    private Boolean privacyAgreed;
+
+    @Column(name = "marketing_agreed")
+    private Boolean marketingAgreed;
+
     public void updatePassword(String encodedPassword) {
         this.password = encodedPassword;
     }
@@ -128,6 +144,6 @@ public class User {
     }
 
     public enum Gender {
-        MALE, FEMALE
+        MALE, FEMALE, NONE
     }
 }
