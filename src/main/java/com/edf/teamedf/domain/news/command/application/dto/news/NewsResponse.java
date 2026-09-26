@@ -12,6 +12,7 @@ public record NewsResponse(
         String title,
         String content,
         String url,
+        String imageUrl,
         LocalDateTime publishedAt
 ) {
 
@@ -24,6 +25,7 @@ public record NewsResponse(
                 news.getTitle(),
                 news.getContent(),
                 news.getUrl(),
+                news.getImageUrl(),
                 news.getPublishedAt()
         );
     }

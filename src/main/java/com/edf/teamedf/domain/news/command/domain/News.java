@@ -40,6 +40,13 @@ public class News {
     @Column(name = "url", length = 500)
     private String url;
 
+    /**
+     * 기사 대표 이미지(og:image) URL. 수집 시점에 기사 페이지에서 추출한다.
+     * 추출하지 못한 기사는 null 이며, 앱이 카테고리 일러스트로 대체한다.
+     */
+    @Column(name = "image_url", length = 500)
+    private String imageUrl;
+
     /** 기사 발행 시각 (프론트에서 timeAgo 로 상대 시간 표시). */
     @Column(name = "published_at", nullable = false)
     private LocalDateTime publishedAt;

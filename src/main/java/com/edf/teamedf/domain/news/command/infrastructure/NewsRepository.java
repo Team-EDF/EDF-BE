@@ -12,4 +12,7 @@ public interface NewsRepository extends JpaRepository<News, Long> {
     Page<News> findAllByOrderByPublishedAtDesc(Pageable pageable);
 
     Page<News> findAllByCategoryOrderByPublishedAtDesc(News.Category category, Pageable pageable);
+
+    /** 스케줄러가 동일 기사(url)를 중복 저장하지 않도록 확인한다. */
+    boolean existsByUrl(String url);
 }

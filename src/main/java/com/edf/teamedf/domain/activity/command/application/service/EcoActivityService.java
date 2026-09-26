@@ -107,9 +107,18 @@ public class EcoActivityService {
                 null
         );
 
-        notifyIfEvolved(userId, totalCarbon - category.getSavedCarbon(), totalCarbon);
+        float totalCarbonBefore = Math.max(totalCarbon - category.getSavedCarbon(), 0f);
+        CharacterLevel previousLevel = CharacterLevel.of(totalCarbonBefore);
+        CharacterLevel currentLevel = CharacterLevel.of(totalCarbon);
+        notifyIfEvolved(userId, totalCarbonBefore, totalCarbon);
 
-        return CertifyResponse.of(activity, totalCarbon, totalPoints);
+        return CertifyResponse.of(
+                activity,
+                totalCarbon,
+                totalPoints,
+                previousLevel.getLevel(),
+                currentLevel.getLevel()
+        );
     }
 
     /**
@@ -162,6 +171,12 @@ public class EcoActivityService {
 
         float totalCarbonAfter = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
         float totalCarbonBefore = totalCarbonAfter - savedCarbon;
+        Long totalPoints = ecoActivityRepository.sumPointsByUserId(userId);
+        if (totalPoints == null) {
+            totalPoints = 0L;
+        }
+        CharacterLevel previousLevel = CharacterLevel.of(Math.max(totalCarbonBefore, 0f));
+        CharacterLevel currentLevel = CharacterLevel.of(totalCarbonAfter);
 
         notificationService.notify(
                 userId,
@@ -176,7 +191,14 @@ public class EcoActivityService {
 
         notifyIfEvolved(userId, totalCarbonBefore, totalCarbonAfter);
 
-        return TransitCertifyResponse.of(savedCarbon, pointsEarned);
+        return TransitCertifyResponse.of(
+                savedCarbon,
+                pointsEarned,
+                totalCarbonAfter,
+                totalPoints,
+                previousLevel.getLevel(),
+                currentLevel.getLevel()
+        );
     }
 
     private static String transitModeLabel(String mode) {
