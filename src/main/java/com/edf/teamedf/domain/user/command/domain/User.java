@@ -93,6 +93,14 @@ public class User {
     @Column(name = "marketing_agreed")
     private Boolean marketingAgreed;
 
+    /** 탈퇴 시각. null 이면 정상 회원. */
+    @Column(name = "withdrawn_at")
+    private LocalDateTime withdrawnAt;
+
+    /** 탈퇴 사유 (선택 입력, 통계용). */
+    @Column(name = "withdraw_reason", length = 200)
+    private String withdrawReason;
+
     public void updatePassword(String encodedPassword) {
         this.password = encodedPassword;
     }
@@ -133,6 +141,46 @@ public class User {
             this.zipCode = zipCode.isBlank() ? null : zipCode.trim();
         }
     }
+
+    public boolean isWithdrawn() {
+        return this.withdrawnAt != null;
+    }
+
+    /**
+     * 회원 탈퇴 (소프트 탈퇴 + 즉시 익명화).
+     *
+     * 행 자체는 남긴다. 게시글·댓글·인증 기록이 이 행을 참조하고 있어서, 지우면
+     * 다른 사람이 그 글에 단 댓글까지 함께 사라지기 때문이다. 대신 식별에 쓰이는
+     * 개인정보는 이 자리에서 모두 지우고, 화면에 노출되는 이름만 '탈퇴한 회원'으로 남긴다.
+     *
+     * 이메일을 비우므로 로그인 조회(findByEmail)에 걸리지 않고, 같은 이메일로 재가입할 수 있다.
+     * 닉네임은 unique 제약이 있어 userId 를 섞은 값으로 바꾼다.
+     */
+    public void withdraw(String reason) {
+        this.withdrawnAt = LocalDateTime.now();
+        this.withdrawReason = (reason == null || reason.isBlank()) ? null : reason.trim();
+        this.enabled = false;
+
+        this.email = null;
+        this.password = null;
+        this.phone = null;
+        this.providerId = null;
+        this.profileImageUrl = null;
+        this.bio = null;
+        this.fullName = null;
+        this.address = null;
+        this.addressDetail = null;
+        this.zipCode = null;
+        this.birthDate = null;
+        this.gender = Gender.NONE;
+        this.marketingAgreed = Boolean.FALSE;
+
+        this.name = WITHDRAWN_NAME;
+        this.nickname = "withdrawn_" + this.userId;
+    }
+
+    /** 게시글·댓글 작성자 자리에 노출되는 이름. */
+    public static final String WITHDRAWN_NAME = "탈퇴한 회원";
 
     @PrePersist
     protected void onCreate() {
