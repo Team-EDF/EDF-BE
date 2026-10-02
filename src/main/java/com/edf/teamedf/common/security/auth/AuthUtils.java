@@ -4,8 +4,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 
 /**
- * SecurityConfig 가 현재 모든 요청을 permitAll 로 열어두고 있어서
- * 인증이 필요한 API 는 컨트롤러에서 principal 존재 여부를 직접 확인해야 한다.
+ * 인증 여부는 SecurityConfig 에서 먼저 막고, 컨트롤러에서는 principal 에서 userId 를 꺼낼 때 사용한다.
+ * (SecurityConfig 에서 permitAll 로 열어둔 경로에서도 principal 이 null 일 때 500 대신 401 을 돌려준다)
  */
 public final class AuthUtils {
 

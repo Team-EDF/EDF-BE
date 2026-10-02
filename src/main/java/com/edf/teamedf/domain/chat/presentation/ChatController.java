@@ -1,5 +1,6 @@
 package com.edf.teamedf.domain.chat.presentation;
 
+import com.edf.teamedf.common.security.auth.AuthUtils;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.domain.chat.application.ChatService;
 import com.edf.teamedf.domain.chat.presentation.dto.ChatRequest;
@@ -24,7 +25,7 @@ public class ChatController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody ChatRequest request) {
 
-        Long userId = principal.userId();
+        Long userId = AuthUtils.requireUserId(principal);
         ChatResponse response = chatService.sendChatMessage(userId, request);
         return ResponseEntity.ok(response);
     }

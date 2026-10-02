@@ -1,5 +1,6 @@
 package com.edf.teamedf.domain.dashboard.command.application.controller;
 
+import com.edf.teamedf.common.security.auth.AuthUtils;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.domain.dashboard.command.application.RecordConfirmService;
 import lombok.RequiredArgsConstructor;
@@ -22,7 +23,7 @@ public class RecordController {
     public ResponseEntity<Void> confirm(
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long recordId) {
-        recordConfirmService.confirmByRecordId(recordId, principal.userId());
+        recordConfirmService.confirmByRecordId(recordId, AuthUtils.requireUserId(principal));
         return ResponseEntity.ok().build();
     }
 }

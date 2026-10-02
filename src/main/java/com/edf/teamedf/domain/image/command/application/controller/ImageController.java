@@ -1,5 +1,6 @@
 package com.edf.teamedf.domain.image.command.application.controller;
 
+import com.edf.teamedf.common.security.auth.AuthUtils;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.domain.image.command.application.dto.ImageUploadResponse;
 import com.edf.teamedf.domain.image.command.application.service.ImageUploadService;
@@ -28,14 +29,14 @@ public class ImageController {
             @RequestParam(required = false) ReferenceType referenceType,
             @RequestParam(required = false) Long referenceId) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(imageUploadService.upload(principal.userId(), file, referenceType, referenceId));
+                .body(imageUploadService.upload(AuthUtils.requireUserId(principal), file, referenceType, referenceId));
     }
 
     @DeleteMapping("/{imageId}")
     public ResponseEntity<Void> delete(
             @AuthenticationPrincipal UserPrincipal principal,
             @PathVariable Long imageId) {
-        imageUploadService.delete(principal.userId(), imageId);
+        imageUploadService.delete(AuthUtils.requireUserId(principal), imageId);
         return ResponseEntity.noContent().build();
     }
 
@@ -49,6 +50,6 @@ public class ImageController {
     @GetMapping("/me")
     public ResponseEntity<List<ImageUploadResponse>> getMyImages(
             @AuthenticationPrincipal UserPrincipal principal) {
-        return ResponseEntity.ok(imageUploadService.getMyImages(principal.userId()));
+        return ResponseEntity.ok(imageUploadService.getMyImages(AuthUtils.requireUserId(principal)));
     }
 }

@@ -10,6 +10,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
@@ -48,23 +49,45 @@ public class SecurityConfig {
                 .csrf(csrf -> csrf.disable())
                 .cors(cors -> cors.configurationSource(corsConfigurationSource()))
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-                .exceptionHandling(ex -> ex.authenticationEntryPoint((req, res, e) -> {
-                    res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
-                    res.setContentType("application/json;charset=UTF-8");
-                    res.getWriter().write("{\"message\":\"Unauthorized\"}");
-                }))
+                .exceptionHandling(ex -> ex
+                        .authenticationEntryPoint((req, res, e) -> {
+                            res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                            res.setContentType("application/json;charset=UTF-8");
+                            res.getWriter().write("{\"message\":\"Unauthorized\"}");
+                        })
+                        .accessDeniedHandler((req, res, e) -> {
+                            res.setStatus(HttpServletResponse.SC_FORBIDDEN);
+                            res.setContentType("application/json;charset=UTF-8");
+                            res.getWriter().write("{\"message\":\"Forbidden\"}");
+                        }))
 
                 // ========================================================
-                // 인가 설정
+                // 인가 설정 — 아래에 명시한 경로만 공개, 나머지는 로그인 필요
                 // ========================================================
                 .authorizeHttpRequests(auth -> auth
-//                        .requestMatchers("/", "/index.html", "/favicon.*", "/assets/**").permitAll()
-//                        .requestMatchers("/login/**", "/oauth2/**", "/login/oauth2/**").permitAll()
-//                        .requestMatchers("/location/**", "/key/**").permitAll()
-//                        .requestMatchers("/auth/**").permitAll()
-//                        .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-resources/**").permitAll()
+                        // 에러 응답 포워딩 (막으면 404/400 등이 전부 401 로 바뀜)
+                        .requestMatchers("/error").permitAll()
 
-                        .anyRequest().permitAll())
+                        // 회원가입/로그인/토큰 재발급/본인인증/계정 찾기
+                        .requestMatchers("/auth/**").permitAll()
+
+                        // 헬스체크/모니터링 (외부 노출 차단은 Ingress 에서 처리)
+                        .requestMatchers("/actuator/health/**", "/actuator/info", "/actuator/prometheus").permitAll()
+
+                        // 업로드된 정적 파일
+                        .requestMatchers(HttpMethod.GET, "/files/**").permitAll()
+
+                        // 비로그인 열람 허용 (게시글/댓글/뉴스/인증 카테고리)
+                        .requestMatchers(HttpMethod.GET, "/posts", "/posts/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/news", "/news/**").permitAll()
+                        .requestMatchers(HttpMethod.GET, "/activities/categories").permitAll()
+
+                        // 내 정보 조회/수정/탈퇴
+                        .requestMatchers("/users/me").authenticated()
+                        // 회원 목록/검색/단건 조회는 이메일·전화번호를 포함하므로 관리자 전용
+                        .requestMatchers("/users/**").hasRole("ADMIN")
+
+                        .anyRequest().authenticated())
 
                 // ========================================================
                 // OAuth2 설정
