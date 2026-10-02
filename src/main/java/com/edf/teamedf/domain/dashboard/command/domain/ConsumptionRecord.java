@@ -27,6 +27,13 @@ public class ConsumptionRecord {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    // AI 피드백(feedback_service.py)이 직접 조회하는 컬럼 - ocr_data의 merchant_name/payment_location 사본
+    @Column(name = "merchant_name", length = 255)
+    private String merchantName;
+
+    @Column(name = "payment_location", length = 500)
+    private String paymentLocation;
+
     @Column(name = "source_type", length = 20)
     private String sourceType;
 

@@ -7,7 +7,9 @@ import com.edf.teamedf.domain.image.command.domain.ReferenceType;
 import com.edf.teamedf.domain.image.command.domain.StorageType;
 import com.edf.teamedf.domain.image.command.domain.UploadedImage;
 import com.edf.teamedf.domain.image.command.infrastructure.UploadedImageRepository;
+import com.edf.teamedf.domain.dashboard.command.domain.ConsumptionItem;
 import com.edf.teamedf.domain.dashboard.command.domain.ConsumptionRecord;
+import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionItemRepository;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionRecordRepository;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
@@ -40,6 +42,7 @@ public class ImageUploadService {
     private final UploadedImageRepository uploadedImageRepository;
     private final UserRepository userRepository;
     private final ConsumptionRecordRepository consumptionRecordRepository;
+    private final ConsumptionItemRepository consumptionItemRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Value("${ai.service-url}")
@@ -122,9 +125,49 @@ public class ImageUploadService {
             record = buildRecordFromAiResponse(user, imageUrl, response, ocrText, ocrDataJson, "WAITING_CONFIRM");
         }
 
+        record.setMerchantName(asString(response.get("merchant_name"), 255));
+        record.setPaymentLocation(asString(response.get("payment_location"), 500));
         record = consumptionRecordRepository.save(record);
+        replaceItems(record, response);
 
         return ImageUploadResponse.ofReceipt(file, record.getImageUrl(), record.getRecordId(), ocrText);
+    }
+
+    // AI 응답의 item_results를 items 테이블로 옮긴다 (AI 피드백이 items를 직접 조회함).
+    @SuppressWarnings("unchecked")
+    private void replaceItems(ConsumptionRecord record, Map<String, Object> response) {
+        consumptionItemRepository.deleteByRecord_RecordId(record.getRecordId());
+
+        if (!(response.get("item_results") instanceof List<?> itemResults)) return;
+
+        for (Object raw : itemResults) {
+            if (!(raw instanceof Map<?, ?> rawItem)) continue;
+            Map<String, Object> item = (Map<String, Object>) rawItem;
+            Map<String, Object> category = item.get("category") instanceof Map<?, ?> c
+                    ? (Map<String, Object>) c : Map.of();
+
+            consumptionItemRepository.save(ConsumptionItem.builder()
+                    .record(record)
+                    .mainCategoryId(asLong(category.get("main_category_id")))
+                    .middleCategoryId(asLong(category.get("middle_category_id")))
+                    .sourceType("RECEIPT")
+                    .sourceMsg(asString(item.get("item_name"), 500))
+                    .amount(item.get("amount_krw") instanceof Number n ? n.intValue() : 0)
+                    .classifyStage(item.get("classify_stage") instanceof Number n ? n.intValue()
+                            : category.get("classify_stage") instanceof Number m ? m.intValue() : null)
+                    .carbonKg(item.get("carbon_kg") instanceof Number n ? n.floatValue() : null)
+                    .build());
+        }
+    }
+
+    private static Long asLong(Object value) {
+        return value instanceof Number n ? n.longValue() : null;
+    }
+
+    private static String asString(Object value, int maxLength) {
+        if (value == null) return null;
+        String str = value.toString();
+        return str.length() > maxLength ? str.substring(0, maxLength) : str;
     }
 
     private ConsumptionRecord saveFailedReceiptRecord(User user, String errorMessage) {
