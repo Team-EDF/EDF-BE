@@ -57,10 +57,12 @@ public class EcoActivityService {
     /**
      * Green Action 챌린지를 완료했을 때 포인트를 지급한다.
      * 기존 포인트 합계(sumPointsByUserId)와 월간 랭킹에 그대로 반영되도록 활동 기록 1건으로 남긴다.
-     * 절감량(savedCarbon)은 챌린지 예상치가 측정값이 아니라서 0으로 둔다 (캐릭터 진화에 영향 없음).
+     * 절감량(savedCarbon)은 챌린지 예상치가 측정값이 아니라서 0으로 둔다.
+     * 대신 포인트가 쌓이므로 캐릭터 진화(탄소 + 포인트 하이브리드) 조건 중 포인트 쪽에 기여하고,
+     * 이 보상으로 진화 조건을 모두 채우면 레벨업 알림을 보낸다.
      */
     @Transactional
-    public void recordChallengeReward(Long userId, String challengeTitle, int points) {
+    public ChallengeRewardResult recordChallengeReward(Long userId, String challengeTitle, int points) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
@@ -80,6 +82,21 @@ public class EcoActivityService {
                 .build());
 
         applyToRanking(user, 0f, Math.max(0, points));
+
+        float totalCarbon = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
+        long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
+        long pointsBefore = Math.max(totalPoints - Math.max(0, points), 0L);
+        int previousLevel = CharacterLevel.levelOf(totalCarbon, pointsBefore);
+        int currentLevel = CharacterLevel.levelOf(totalCarbon, totalPoints);
+        notifyIfEvolved(userId, totalCarbon, pointsBefore, totalCarbon, totalPoints);
+        return new ChallengeRewardResult(totalCarbon, totalPoints, previousLevel, currentLevel);
+    }
+
+    /** 챌린지 보상 지급 후의 누적 값과 레벨 변화. */
+    public record ChallengeRewardResult(float totalSavedCarbon, long totalPoints, int previousLevel, int level) {
+        public boolean leveledUp() {
+            return level > previousLevel;
+        }
     }
 
     // ------------------------------------------------------------------ 인증
@@ -125,10 +142,7 @@ public class EcoActivityService {
         applyToRanking(user, category.getSavedCarbon(), category.getPoints());
 
         Float totalCarbon = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
-        Long totalPoints = ecoActivityRepository.sumPointsByUserId(userId);
-        if (totalPoints == null) {
-            totalPoints = 0L;
-        }
+        Long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
 
         notificationService.notify(
                 userId,
@@ -142,9 +156,10 @@ public class EcoActivityService {
         );
 
         float totalCarbonBefore = Math.max(totalCarbon - category.getSavedCarbon(), 0f);
-        CharacterLevel previousLevel = CharacterLevel.of(totalCarbonBefore);
-        CharacterLevel currentLevel = CharacterLevel.of(totalCarbon);
-        notifyIfEvolved(userId, totalCarbonBefore, totalCarbon);
+        long totalPointsBefore = Math.max(totalPoints - category.getPoints(), 0L);
+        CharacterLevel previousLevel = CharacterLevel.of(totalCarbonBefore, totalPointsBefore);
+        CharacterLevel currentLevel = CharacterLevel.of(totalCarbon, totalPoints);
+        notifyIfEvolved(userId, totalCarbonBefore, totalPointsBefore, totalCarbon, totalPoints);
 
         return CertifyResponse.of(
                 activity,
@@ -204,13 +219,11 @@ public class EcoActivityService {
         }
 
         float totalCarbonAfter = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
-        float totalCarbonBefore = totalCarbonAfter - savedCarbon;
-        Long totalPoints = ecoActivityRepository.sumPointsByUserId(userId);
-        if (totalPoints == null) {
-            totalPoints = 0L;
-        }
-        CharacterLevel previousLevel = CharacterLevel.of(Math.max(totalCarbonBefore, 0f));
-        CharacterLevel currentLevel = CharacterLevel.of(totalCarbonAfter);
+        float totalCarbonBefore = Math.max(totalCarbonAfter - savedCarbon, 0f);
+        Long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
+        long totalPointsBefore = Math.max(totalPoints - pointsEarned, 0L);
+        CharacterLevel previousLevel = CharacterLevel.of(totalCarbonBefore, totalPointsBefore);
+        CharacterLevel currentLevel = CharacterLevel.of(totalCarbonAfter, totalPoints);
 
         notificationService.notify(
                 userId,
@@ -223,7 +236,7 @@ public class EcoActivityService {
                 null
         );
 
-        notifyIfEvolved(userId, totalCarbonBefore, totalCarbonAfter);
+        notifyIfEvolved(userId, totalCarbonBefore, totalPointsBefore, totalCarbonAfter, totalPoints);
 
         return TransitCertifyResponse.of(
                 savedCarbon,
@@ -251,9 +264,9 @@ public class EcoActivityService {
     }
 
     /** 이번 인증으로 캐릭터가 진화했다면 레벨업 알림을 보낸다. */
-    private void notifyIfEvolved(Long userId, float carbonBefore, float carbonAfter) {
-        CharacterLevel before = CharacterLevel.of(Math.max(carbonBefore, 0f));
-        CharacterLevel after = CharacterLevel.of(carbonAfter);
+    private void notifyIfEvolved(Long userId, float carbonBefore, long pointsBefore, float carbonAfter, long pointsAfter) {
+        CharacterLevel before = CharacterLevel.of(Math.max(carbonBefore, 0f), Math.max(pointsBefore, 0L));
+        CharacterLevel after = CharacterLevel.of(carbonAfter, pointsAfter);
         if (after.getLevel() <= before.getLevel()) {
             return;
         }
@@ -322,10 +335,9 @@ public class EcoActivityService {
         long todayCount = ecoActivityRepository.countByUser_UserIdAndCreatedAtBetween(userId, todayStart, now);
 
         float totalSavedCarbon = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
-        Long points = ecoActivityRepository.sumPointsByUserId(userId);
-        long totalPoints = points == null ? 0L : points;
+        long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
 
-        int level = CharacterLevel.levelOf(totalSavedCarbon);
+        int level = CharacterLevel.levelOf(totalSavedCarbon, totalPoints);
 
         List<EcoActivitySummaryResponse.CategoryBreakdown> categories = buildBreakdown(userId, totalCount);
         int streakDays = calculateStreak(userId);
@@ -424,6 +436,10 @@ public class EcoActivityService {
 
     private static float toFloat(Double value) {
         return value == null ? 0f : value.floatValue();
+    }
+
+    private static long toLong(Long value) {
+        return value == null ? 0L : value;
     }
 
     @SuppressWarnings("unused")

@@ -1,6 +1,7 @@
 package com.edf.teamedf.domain.challenge.command.application.service;
 
 import com.edf.teamedf.domain.activity.command.application.service.EcoActivityService;
+import com.edf.teamedf.domain.activity.command.domain.CharacterLevel;
 import com.edf.teamedf.domain.activity.command.infrastructure.EcoActivityRepository;
 import com.edf.teamedf.domain.challenge.command.application.dto.CheckInResponse;
 import com.edf.teamedf.domain.challenge.command.application.dto.UserChallengeResponse;
@@ -196,9 +197,16 @@ public class ChallengeService {
         checkInRepository.save(ChallengeCheckIn.builder()
                 .userChallenge(challenge).checkDate(today).method("MANUAL").build());
 
-        int awarded = advance(userId, challenge);
+        EcoActivityService.ChallengeRewardResult reward = advance(userId, challenge);
+        if (reward != null) {
+            return new CheckInResponse(
+                    UserChallengeResponse.of(challenge, true), true, challenge.getPoints(), reward.totalPoints(),
+                    reward.previousLevel(), reward.level(), reward.leveledUp());
+        }
+        long points = totalPoints(userId);
+        int level = CharacterLevel.levelOf(totalSavedCarbon(userId), points);
         return new CheckInResponse(
-                UserChallengeResponse.of(challenge, true), awarded > 0, awarded, totalPoints(userId));
+                UserChallengeResponse.of(challenge, true), false, 0, points, level, level, false);
     }
 
     /**
@@ -232,15 +240,14 @@ public class ChallengeService {
         }
     }
 
-    /** 진행도를 올리고, 막 완료됐으면 포인트를 지급한다. 지급한 포인트(없으면 0)를 돌려준다. */
-    private int advance(Long userId, UserChallenge challenge) {
+    /** 진행도를 올리고, 막 완료됐으면 포인트를 지급한다. 지급했으면 그 결과(누적/레벨 변화)를, 아니면 null 을 돌려준다. */
+    private EcoActivityService.ChallengeRewardResult advance(Long userId, UserChallenge challenge) {
         boolean justCompleted = challenge.addProgress();
         userChallengeRepository.save(challenge);
         if (!justCompleted) {
-            return 0;
+            return null;
         }
-        ecoActivityService.recordChallengeReward(userId, challenge.getTitle(), challenge.getPoints());
-        return challenge.getPoints();
+        return ecoActivityService.recordChallengeReward(userId, challenge.getTitle(), challenge.getPoints());
     }
 
     // ------------------------------------------------------------------ 보조
@@ -259,6 +266,11 @@ public class ChallengeService {
     private long totalPoints(Long userId) {
         Long points = ecoActivityRepository.sumPointsByUserId(userId);
         return points == null ? 0L : points;
+    }
+
+    private float totalSavedCarbon(Long userId) {
+        Double carbon = ecoActivityRepository.sumSavedCarbonByUserId(userId);
+        return carbon == null ? 0f : carbon.floatValue();
     }
 
     /** 이번 주 월요일 (한국 시간 기준). */
