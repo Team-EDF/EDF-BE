@@ -73,7 +73,7 @@ public class EcoActivityController {
     public ResponseEntity<List<Map<String, Object>>> getCategories() {
         List<Map<String, Object>> categories = java.util.Arrays.stream(EcoCategory.values())
                 // 챌린지 보상 전용 카테고리는 인증 화면의 선택지가 아니다
-                .filter(c -> c != EcoCategory.CHALLENGE)
+                .filter(c -> !c.isSystemOnly())
                 .map(c -> Map.<String, Object>of(
                         "key", c.name(),
                         "label", c.getDisplayName(),

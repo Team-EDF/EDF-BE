@@ -27,7 +27,9 @@ import java.util.Map;
  *
  * <p>POST /api/profile : 설문 답변 -> Green Profile<br>
  * POST /api/challenges/recommend : 프로필 -> 맞춤 챌린지 3개<br>
- * POST /api/challenges/verify : 사진(텀블러+영수증 / 저탄소 마크+영수증) -> 인증 판정 (multipart)</p>
+ * POST /api/challenges/verify : 사진(텀블러+영수증 / 저탄소 마크+영수증) -> 인증 판정 (multipart)<br>
+ * POST /api/household/read-bill : 관리비/공과금 고지서 사진 -> 사용월과 전기·수도·가스·난방 값 (multipart)<br>
+ * POST /api/household/carbon : 한 달 값 -> 가정 에너지 탄소 계산</p>
  *
  * <p>AI 서버는 외부에 열려 있지 않고 BE만 호출한다. 호출이 실패하면 502로 원인을 돌려준다.</p>
  */
@@ -74,10 +76,24 @@ public class GreenAiClient {
      * 사진으로 챌린지 인증을 판정한다. 통과/거절은 응답(passed)으로 오고, 사진 문제(400)와 AI 불가(503)는 예외로 던진다.
      * 사진은 AI 서버에서도 저장하지 않는다.
      */
-    @SuppressWarnings("unchecked")
     public Map<String, Object> verify(String kind, List<MultipartFile> images) {
+        return postImages("/api/challenges/verify", Map.of("kind", kind), images, "AI 인증");
+    }
+
+    /** 관리비/공과금 고지서 사진(1~3장)을 읽어 사용월과 전기·수도·가스·난방 값을 돌려받는다. 사진은 저장하지 않는다. */
+    public Map<String, Object> readHouseholdBill(List<MultipartFile> images) {
+        return postImages("/api/household/read-bill", Map.of(), images, "AI 고지서 판독");
+    }
+
+    /** 한 달 값(사용량/금액)으로 가정 에너지 탄소(kgCO2eq)와 항목별 내역을 계산한다. */
+    public Map<String, Object> householdCarbon(Map<String, Object> values) {
+        return post("/api/household/carbon", values);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> postImages(String path, Map<String, String> fields, List<MultipartFile> images, String label) {
         MultiValueMap<String, Object> body = new LinkedMultiValueMap<>();
-        body.add("kind", kind);
+        fields.forEach(body::add);
         try {
             for (MultipartFile image : images) {
                 if (image.isEmpty()) {
@@ -99,7 +115,7 @@ public class GreenAiClient {
         headers.setContentType(MediaType.MULTIPART_FORM_DATA);
         try {
             Map<String, Object> response = verifyRestTemplate.postForObject(
-                    aiServiceUrl + "/api/challenges/verify", new HttpEntity<>(body, headers), Map.class);
+                    aiServiceUrl + path, new HttpEntity<>(body, headers), Map.class);
             if (response == null) {
                 throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI 서버가 빈 응답을 돌려줬습니다.");
             }
@@ -111,12 +127,12 @@ public class GreenAiClient {
             }
             if (status == 503) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "AI 인증을 잠시 쓸 수 없어요. 잠시 후 다시 시도해 주세요.");
+                        label + "을(를) 잠시 쓸 수 없어요. 잠시 후 다시 시도해 주세요.");
             }
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI 서버 오류(" + status + ")");
         } catch (ResourceAccessException e) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "AI 인증이 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.");
+                    label + "이(가) 오래 걸리고 있어요. 잠시 후 다시 시도해 주세요.");
         } catch (RestClientException e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY,
                     "AI 서버에 연결하지 못했습니다: " + e.getClass().getSimpleName());

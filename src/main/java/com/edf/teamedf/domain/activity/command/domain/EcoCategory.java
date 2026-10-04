@@ -27,7 +27,13 @@ public enum EcoCategory {
      * 포인트는 챌린지마다 달라서 기본값 0이고, 지급 시 챌린지의 포인트를 기록한다.
      * 절감량은 가정치라서 기록하지 않는다(0).
      */
-    CHALLENGE("챌린지 완료", "챌린지 보상", 0f, 0);
+    CHALLENGE("챌린지 완료", "챌린지 보상", 0f, 0),
+
+    /**
+     * 가정 에너지(관리비) 절감 보상용 카테고리 (사용자가 직접 인증하는 카테고리가 아님).
+     * 고지서로 인증된 달끼리 비교해서 전기·수도·가스 사용량을 줄이면 포인트를 지급하고 이 카테고리로 기록한다.
+     */
+    HOUSEHOLD("생활 절감", "관리비 절감 보상", 0f, 0);
 
     private final String displayName;
     private final String detectionName;
@@ -39,6 +45,11 @@ public enum EcoCategory {
         this.detectionName = detectionName;
         this.savedCarbon = savedCarbon;
         this.points = points;
+    }
+
+    /** 사용자가 직접 인증할 수 없고 서버가 보상으로만 기록하는 카테고리 (인증 화면 목록에서 숨기고 직접 인증은 막는다). */
+    public boolean isSystemOnly() {
+        return this == CHALLENGE || this == HOUSEHOLD;
     }
 
     public static EcoCategory from(String raw) {

@@ -76,7 +76,18 @@ public class EcoActivityService {
         return recordChallengeActivity(userId, "챌린지 인증 보너스 · " + challengeTitle, "챌린지 인증 보너스", points);
     }
 
+    /** 관리비 절감 보상 포인트를 지급한다 (카테고리 HOUSEHOLD, 챌린지 보상과 같은 방식으로 기록·랭킹 반영·레벨업 판정). */
+    @Transactional
+    public ChallengeRewardResult recordHouseholdReward(Long userId, String label, int points) {
+        return recordChallengeActivity(userId, EcoCategory.HOUSEHOLD, "관리비 절감 보상 · " + label, "관리비 절감 보상", points);
+    }
+
     private ChallengeRewardResult recordChallengeActivity(Long userId, String commentText, String detectionName, int points) {
+        return recordChallengeActivity(userId, EcoCategory.CHALLENGE, commentText, detectionName, points);
+    }
+
+    private ChallengeRewardResult recordChallengeActivity(
+            Long userId, EcoCategory category, String commentText, String detectionName, int points) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
@@ -87,7 +98,7 @@ public class EcoActivityService {
 
         ecoActivityRepository.save(EcoActivity.builder()
                 .user(user)
-                .category(EcoCategory.CHALLENGE)
+                .category(category)
                 .comment(comment)
                 .savedCarbon(0f)
                 .pointsEarned(Math.max(0, points))
@@ -125,8 +136,8 @@ public class EcoActivityService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
         EcoCategory category = EcoCategory.from(request.category());
-        if (category == EcoCategory.CHALLENGE) {
-            // 챌린지 보상 전용 카테고리라 직접 인증으로는 쓸 수 없다
+        if (category.isSystemOnly()) {
+            // 챌린지·관리비 절감 보상 전용 카테고리라 직접 인증으로는 쓸 수 없다
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 카테고리입니다: " + request.category());
         }
 
