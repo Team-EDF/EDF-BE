@@ -9,6 +9,7 @@ import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyRes
 import com.edf.teamedf.domain.activity.command.domain.CharacterLevel;
 import com.edf.teamedf.domain.activity.command.domain.EcoActivity;
 import com.edf.teamedf.domain.activity.command.domain.EcoCategory;
+import com.edf.teamedf.domain.activity.command.domain.TransitTripAnalyzer;
 import com.edf.teamedf.domain.activity.command.infrastructure.EcoActivityRepository;
 import com.edf.teamedf.domain.dashboard.command.domain.UserRanking;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.UserRankingRepository;
@@ -46,6 +47,9 @@ public class EcoActivityService {
     private static final String PERIOD_MONTHLY = "MONTHLY";
     private static final String RANKING_TYPE_CARBON = "탄소절감";
     private static final Set<String> VALID_TRANSIT_MODES = Set.of("WALK", "TRANSIT", "CAR");
+    /** 이동 절감량 계산 (앱 transitModes.js 와 같은 값): 자차 기준 배출계수 대비 이동수단 배출계수 차이. */
+    private static final float CAR_FACTOR = 0.192f;
+    private static final float POINTS_PER_KG = 50f;
 
     private final EcoActivityRepository ecoActivityRepository;
     private final UserRepository userRepository;
@@ -63,10 +67,20 @@ public class EcoActivityService {
      */
     @Transactional
     public ChallengeRewardResult recordChallengeReward(Long userId, String challengeTitle, int points) {
+        return recordChallengeActivity(userId, "챌린지 완료 · " + challengeTitle, "챌린지 완료", points);
+    }
+
+    /** 사진 인증 보너스 포인트를 지급한다 (챌린지 완료 보상과 같은 방식으로 활동 기록 1건 + 랭킹 반영). */
+    @Transactional
+    public ChallengeRewardResult recordChallengeBonus(Long userId, String challengeTitle, int points) {
+        return recordChallengeActivity(userId, "챌린지 인증 보너스 · " + challengeTitle, "챌린지 인증 보너스", points);
+    }
+
+    private ChallengeRewardResult recordChallengeActivity(Long userId, String commentText, String detectionName, int points) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
-        String comment = "챌린지 완료 · " + challengeTitle;
+        String comment = commentText;
         if (comment.length() > 500) {
             comment = comment.substring(0, 500);
         }
@@ -77,7 +91,7 @@ public class EcoActivityService {
                 .comment(comment)
                 .savedCarbon(0f)
                 .pointsEarned(Math.max(0, points))
-                .detectionName("챌린지 완료")
+                .detectionName(detectionName)
                 .status(EcoActivity.Status.APPROVED)
                 .build());
 
@@ -190,9 +204,18 @@ public class EcoActivityService {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
-        float distanceKm = request.distanceKm() == null ? 0f : Math.max(0f, request.distanceKm());
-        float savedCarbon = request.savedCarbon() == null ? 0f : Math.max(0f, request.savedCarbon());
-        int pointsEarned = request.pointsEarned() == null ? 0 : Math.max(0, request.pointsEarned());
+        // 앱이 보낸 거리·절감량·포인트는 믿지 않고, 시각이 있는 경로로 이동수단 주장을 검증한 뒤 서버가 다시 계산한다
+        TransitTripAnalyzer.Verdict verdict = TransitTripAnalyzer.evaluate(
+                mode, toAnalyzerPoints(request.route()), System.currentTimeMillis());
+        if (!verdict.ok()) {
+            float totalCarbon = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
+            long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
+            return TransitCertifyResponse.rejected(verdict.message(), verdict.detectedMode(),
+                    totalCarbon, totalPoints, CharacterLevel.levelOf(totalCarbon, totalPoints));
+        }
+        float distanceKm = (float) verdict.creditedKm();
+        float savedCarbon = Math.max(0f, distanceKm * (CAR_FACTOR - transitFactor(mode)));
+        int pointsEarned = Math.round(savedCarbon * POINTS_PER_KG);
         String modeLabel = transitModeLabel(mode);
 
         String comment = String.format("GPS 이동 추적 · %.2fkm · %s",
@@ -244,8 +267,39 @@ public class EcoActivityService {
                 totalCarbonAfter,
                 totalPoints,
                 previousLevel.getLevel(),
-                currentLevel.getLevel()
+                currentLevel.getLevel(),
+                verdict.message(),
+                verdict.detectedMode(),
+                distanceKm
         );
+    }
+
+    /** 이동수단별 배출계수 (kg CO2/km): 도보 0, 대중교통 0.089, 자차 0.192. */
+    private static float transitFactor(String mode) {
+        return switch (mode) {
+            case "WALK" -> 0f;
+            case "CAR" -> CAR_FACTOR;
+            default -> 0.089f;
+        };
+    }
+
+    /** 요청 경로를 분석용 점으로 바꾼다. 시각·좌표가 없거나 정확도가 나쁜 점은 버린다. */
+    private static List<TransitTripAnalyzer.Point> toAnalyzerPoints(List<TransitCertifyRequest.RoutePoint> route) {
+        List<TransitTripAnalyzer.Point> points = new ArrayList<>();
+        if (route == null) {
+            return points;
+        }
+        for (TransitCertifyRequest.RoutePoint p : route) {
+            if (p == null || p.latitude() == null || p.longitude() == null || p.timestamp() == null) {
+                continue;
+            }
+            if (p.accuracy() != null && p.accuracy() > TransitTripAnalyzer.MAX_ACCURACY_M) {
+                continue;
+            }
+            points.add(new TransitTripAnalyzer.Point(
+                    p.latitude(), p.longitude(), p.timestamp(), Boolean.TRUE.equals(p.segmentBreak())));
+        }
+        return points;
     }
 
     private static String transitModeLabel(String mode) {

@@ -87,8 +87,11 @@ public class DashboardController {
             @RequestBody TransitCertifyRequest request) {
         Long userId = AuthUtils.requireUserId(principal);
         TransitCertifyResponse response = ecoActivityService.certifyTransit(userId, request);
-        // 이번 주 대중교통 챌린지에 하루 1회 반영한다 (반영이 실패해도 이동 인증은 성공 처리)
-        challengeService.onTransitCertified(userId, request.mode(), request.distanceKm());
+        // 서버가 경로로 검증해 인정한 이동만, 서버가 계산한 거리로 이번 주 대중교통 챌린지에 하루 1회 반영한다
+        // (반영이 실패해도 이동 인증은 성공 처리)
+        if (response.success()) {
+            challengeService.onTransitCertified(userId, request.mode(), response.distanceKm());
+        }
         return ResponseEntity.ok(response);
     }
 }

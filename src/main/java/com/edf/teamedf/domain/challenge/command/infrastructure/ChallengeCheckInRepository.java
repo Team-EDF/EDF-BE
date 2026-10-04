@@ -11,6 +11,11 @@ public interface ChallengeCheckInRepository extends JpaRepository<ChallengeCheck
 
     boolean existsByUserChallenge_UserChallengeIdAndCheckDate(Long userChallengeId, LocalDate checkDate);
 
+    /** 방법별(MANUAL/AUTO_TRANSIT) 체크 횟수. 직접 체크 한도 계산용. */
+    long countByUserChallenge_UserChallengeIdAndMethod(Long userChallengeId, String method);
+
+    List<ChallengeCheckIn> findByUserChallenge_UserChallengeIdAndMethod(Long userChallengeId, String method);
+
     List<ChallengeCheckIn> findByUserChallenge_UserChallengeIdInAndCheckDate(
             Collection<Long> userChallengeIds, LocalDate checkDate);
 }

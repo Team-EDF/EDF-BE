@@ -10,11 +10,33 @@ AI 서버 API 명세는 AI 저장소의 `GreenAction_API_spec_for_BE_FE.md` 참�
 | POST | `/green/survey` | 설문 저장 → AI `/api/profile` 호출 → 프로필(GSTI) 저장. 알 수 없는 필드는 버리고, 비어 있으면 400. **설문은 처음 한 번만**: 이미 프로필이 있으면 409 |
 | GET | `/green/profile` | 내 프로필(GSTI). 설문 전이면 404. **하루 1회 자동 재계산**(아래 참고) |
 | GET | `/green/challenges` | 이번 주(월요일 시작, KST) 챌린지 3개. 없으면 AI `/api/challenges/recommend`로 부여. 설문 전이면 409. 지난주 완료분은 제외하고 추천 |
-| POST | `/green/challenges/{id}/check-in` | 자율 체크(하루 1회). 대중교통 챌린지는 400, 완료된 건 409, 오늘 이미 체크했으면 409 |
+| POST | `/green/challenges/{id}/check-in` | 자율 체크(하루 1회). 대중교통 챌린지는 400, 완료된 건 409, 오늘 이미 체크했으면 409, **직접 체크 한도를 넘으면 409**, 무구매 챌린지는 그날 쇼핑 영수증이 있으면 409 |
+| POST | `/green/challenges/{id}/verify` | **사진 인증**(multipart `images` 1~3장). 통과/거절은 모두 200(`verified`), 사진 문제 400, AI 불가 503 |
 
 오류 응답은 `{"message": "..."}` (GreenActionController의 `@ExceptionHandler`).
 
 체크인 응답 `CheckInResponse`: `challenge`, `justCompleted`, `pointsAwarded`, `totalPoints`, `previousLevel`, `level`, `leveledUp`.
+
+## 인증 방식 (하이브리드: 체크하기 + 인증하기)
+
+챌린지마다 AI 카탈로그의 인증 방식을 부여 시점에 스냅샷으로 저장한다 (`UserChallenge.photoVerification`, `selfCheckLimit`, `crossCheck`).
+
+- **직접 체크**: 하루 1회. 사진 인증이 있는 챌린지(`CAFE_*`, `FOOD_1/2`)는 주간 인정 횟수에 한도가 있다 (텀블러: 목표의 절반 내림 / 저탄소 마크: 절반 올림). 한도를 넘으면 "인증하기"로 안내.
+- **사진 인증** (`ChallengeService.verify` → AI `/api/challenges/verify`): 텀블러+카페 영수증, 저탄소 마크+영수증. 인증 횟수는 **무제한**, 같은 영수증은 한 번만(`challenge_verifications.fingerprint` 유니크: 날짜·시각·금액 해시). 사진은 저장하지 않는다.
+  - 인증하면 진행도 +1(완료 시 완료 포인트), 인증 보너스 +5P(하루 3번까지, `VERIFY_BONUS_POINTS` / `VERIFY_BONUS_DAILY_CAP`). 완료한 챌린지도 추가 인증 가능(보너스만).
+  - 거절(영수증 못 읽음·오래됨·카페 아님·텀블러/마크 없음·중복)은 진행도·포인트·지문 소모가 없다.
+- **무구매 교차 검증** (`SHOP_2/3`, `crossCheck=NO_SHOPPING_RECEIPT`): 그날 확정된 "쇼핑소비재" 영수증(`consumption_records.ocr_data`)이 있으면 체크를 거절하고, 체크한 날에 영수증이 뒤늦게 등록되면 챌린지 조회 때 그 체크를 취소한다.
+
+## 이동 인증의 속도 검증 (대중교통/도보)
+
+`POST /dashboard/certify-transit`은 이제 앱이 보낸 절감량·포인트를 믿지 않는다. 시각이 있는 경로(`route[].timestamp/speed/accuracy/segmentBreak`)를 `TransitTripAnalyzer`로 분석해 이동수단 주장을 검증하고, 인정하는 거리와 절감량·포인트(자차 0.192 − 수단별 계수, 50P/kg)를 서버가 다시 계산한다.
+
+- 인정하지 않으면 `success=false` + `message`(사유)로 200을 돌려주고 활동을 기록하지 않는다. 인정된 이동만 서버가 계산한 거리로 대중교통 챌린지에 반영된다.
+- 기준: 도보는 상위 5% 속도 15km/h 이하·차량 속도 구간 30% 미만, 대중교통은 이동 시간 50% 이상이 12km/h 이상 또는 GPS 끊김 후 점프(지하철) 1km 이상, 순간 200km/h 초과·30분 지난 경로·일시정지 후 재개 지점의 점프는 거절. 기준값은 잠정값이다.
+- **속도만으로 버스와 자가용은 구분할 수 없다.** 명백한 불일치(걸으면서 대중교통, 차로 도보)만 거른다. 모의 위치 앱이나 요청 직접 조작은 막지 못한다.
+- 경로가 없는 예전 앱의 도보/대중교통 요청은 거절된다 (자차는 절감량 0이라 허용).
+
+근거 자료와 검증 상태는 AI 저장소의 `GreenAction_verification_evidence.md`.
 
 ## GSTI 자동 갱신 (설문은 한 번만)
 
@@ -26,6 +48,7 @@ AI 서버 API 명세는 AI 저장소의 `GreenAction_API_spec_for_BE_FE.md` 참�
 
 ## 테이블 (ddl-auto: update 로 생성)
 
+- `challenge_verifications` — 사진 인증 기록. 사진은 없고 영수증 지문(유니크), 가맹점·결제일·금액, 근거, 보너스 포인트만 남긴다.
 - `green_profiles` — 사용자당 1행. 설문 답변/프로필 JSON, 출처(survey/data), 유형 코드
 - `user_challenges` — 사용자에게 부여한 챌린지. **AI가 준 카탈로그 내용을 그대로 스냅샷으로 저장**(카탈로그 seed 테이블 없음). 상태 ACTIVE/COMPLETED, 주 시작일, 진행 횟수
 - `challenge_check_ins` — 체크 기록. (user_challenge_id, check_date) 유니크로 하루 1회 보장. 방법 MANUAL / AUTO_TRANSIT
@@ -53,4 +76,4 @@ AI 서버 API 명세는 AI 저장소의 `GreenAction_API_spec_for_BE_FE.md` 참�
 
 ## 로컬 검증
 
-`CharacterLevelTest`(하이브리드 경계값)로 단위 테스트, BE+AI+DB를 띄운 통합 시나리오(설문→재설문 거절→추천→체크→포인트→레벨업→주 전환→GSTI 자동 갱신)는 47개 항목 모두 통과.
+`CharacterLevelTest`(하이브리드 경계값)로 단위 테스트, BE+AI+DB를 띄운 통합 시나리오(설문→재설문 거절→추천→체크→포인트→레벨업→주 전환→사진 인증/중복/보너스 한도→무구매 교차 검증→이동 속도 검증→GSTI 자동 갱신)는 78개 항목 모두 통과. 사진 인증은 실제 Gemini로 합성 영수증을 읽어 확인했고, 이동 속도 검증은 합성 경로(`TransitTripAnalyzerTest` 13개)로 확인했다. 실제 텀블러·마크 사진과 실제 이동 데이터로는 아직 확인하지 못했다.

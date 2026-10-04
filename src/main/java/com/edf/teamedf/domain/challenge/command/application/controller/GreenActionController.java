@@ -4,11 +4,14 @@ import com.edf.teamedf.common.security.auth.AuthUtils;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.domain.challenge.command.application.dto.CheckInResponse;
 import com.edf.teamedf.domain.challenge.command.application.dto.UserChallengeResponse;
+import com.edf.teamedf.domain.challenge.command.application.dto.VerifyChallengeResponse;
 import com.edf.teamedf.domain.challenge.command.application.service.ChallengeService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
@@ -57,6 +60,19 @@ public class GreenActionController {
     public ResponseEntity<Map<String, String>> handleStatus(ResponseStatusException e) {
         String message = e.getReason() == null ? "요청을 처리하지 못했어요." : e.getReason();
         return ResponseEntity.status(e.getStatusCode()).body(Map.of("message", message));
+    }
+
+    /**
+     * 사진 인증 (텀블러 + 영수증 / 저탄소 마크 + 영수증). 사진 1~3장을 {@code images}로 보낸다.
+     * 통과/거절은 모두 200({@code verified}), 사진 형식 문제는 400, AI 불가는 503.
+     */
+    @PostMapping(value = "/challenges/{userChallengeId}/verify", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<VerifyChallengeResponse> verify(
+            @AuthenticationPrincipal UserPrincipal principal,
+            @PathVariable Long userChallengeId,
+            @RequestParam("images") List<MultipartFile> images) {
+        Long userId = AuthUtils.requireUserId(principal);
+        return ResponseEntity.ok(challengeService.verify(userId, userChallengeId, images));
     }
 
     /** 자율 체크 (하루 1회). 목표를 채우면 완료되고 포인트가 지급된다. */

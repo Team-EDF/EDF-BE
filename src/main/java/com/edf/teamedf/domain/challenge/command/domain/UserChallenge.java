@@ -78,6 +78,20 @@ public class UserChallenge {
     @Column(name = "points", nullable = false)
     private Integer points;
 
+    /** 사진 인증 종류: TUMBLER | LOW_CARBON | null(사진 인증 없음). 기존 행은 null */
+    @Column(name = "photo_verification", length = 20)
+    private String photoVerification;
+
+    /** 사진 인증이 있는 챌린지의 자율 체크 주간 인정 횟수. null이면 제한 없음 */
+    @Column(name = "self_check_limit")
+    private Integer selfCheckLimit;
+
+    /** 서버 교차 검증: NO_SHOPPING_RECEIPT(그날 쇼핑 영수증이 있으면 무구매로 인정 안 함) | null */
+    @Column(name = "cross_check", length = 30)
+    private String crossCheck;
+
+    public static final String CROSS_NO_SHOPPING_RECEIPT = "NO_SHOPPING_RECEIPT";
+
     /** 예상 절감량(가정치). 근거가 없으면 null */
     @Column(name = "est_saving_kg")
     private Float estSavingKg;
@@ -106,6 +120,11 @@ public class UserChallenge {
 
     public boolean isCompleted() {
         return STATUS_COMPLETED.equals(status);
+    }
+
+    /** 진행도를 다시 정한다 (무구매 교차 검증으로 취소된 체크를 반영할 때). 완료된 챌린지에는 쓰지 않는다. */
+    public void resetProgress(int count) {
+        this.progressCount = Math.max(0, count);
     }
 
     /** 진행도를 1 올리고, 목표에 도달하면 완료 처리한다. 방금 완료됐으면 true. */

@@ -5,10 +5,14 @@ import com.edf.teamedf.domain.activity.command.domain.CharacterLevel;
 import com.edf.teamedf.domain.activity.command.infrastructure.EcoActivityRepository;
 import com.edf.teamedf.domain.challenge.command.application.dto.CheckInResponse;
 import com.edf.teamedf.domain.challenge.command.application.dto.UserChallengeResponse;
+import com.edf.teamedf.domain.challenge.command.application.dto.VerifyChallengeResponse;
 import com.edf.teamedf.domain.challenge.command.domain.ChallengeCheckIn;
+import com.edf.teamedf.domain.challenge.command.domain.ChallengeVerification;
 import com.edf.teamedf.domain.challenge.command.domain.GreenProfile;
 import com.edf.teamedf.domain.challenge.command.domain.UserChallenge;
 import com.edf.teamedf.domain.challenge.command.infrastructure.ChallengeCheckInRepository;
+import com.edf.teamedf.domain.challenge.command.infrastructure.ChallengeVerificationRepository;
+import com.edf.teamedf.domain.dashboard.command.infrastructure.ConsumptionRecordRepository;
 import com.edf.teamedf.domain.challenge.command.infrastructure.GreenProfileRepository;
 import com.edf.teamedf.domain.challenge.command.infrastructure.UserChallengeRepository;
 import com.edf.teamedf.domain.user.command.domain.User;
@@ -22,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -58,6 +63,11 @@ public class ChallengeService {
     private static final Set<String> SURVEY_KEYS = Set.of(
             "transport", "transport_spend", "cafe_drink", "food", "shopping", "eco_interest", "goal_intent");
 
+    /** 사진 인증 한 번마다 주는 보너스 포인트 (챌린지 완료 포인트와 별도). */
+    private static final int VERIFY_BONUS_POINTS = 5;
+    /** 하루에 보너스를 받을 수 있는 인증 횟수. 인증 자체는 무제한이고, 보너스 포인트만 하루 한도가 있다(포인트 파밍 방지). */
+    private static final int VERIFY_BONUS_DAILY_CAP = 3;
+
     /** 최근 이 기간(일)의 챌린지 완료 수로 GSTI 태도 축을 갱신한다. */
     private static final int RECENT_COMPLETION_DAYS = 30;
     /** GSTI가 바뀐 뒤 "바뀌었어요" 안내를 계속 보여 주는 기간(일). */
@@ -73,6 +83,8 @@ public class ChallengeService {
     private final GreenProfileRepository greenProfileRepository;
     private final UserChallengeRepository userChallengeRepository;
     private final ChallengeCheckInRepository checkInRepository;
+    private final ChallengeVerificationRepository verificationRepository;
+    private final ConsumptionRecordRepository consumptionRecordRepository;
     private final UserRepository userRepository;
     private final EcoActivityRepository ecoActivityRepository;
     private final EcoActivityService ecoActivityService;
@@ -205,6 +217,12 @@ public class ChallengeService {
         if (challenges.isEmpty()) {
             challenges = assignChallenges(userId, weekStart);
         }
+        // 무구매 챌린지: 체크한 날에 쇼핑 영수증이 뒤늦게 등록됐으면 그 체크를 취소한다
+        for (UserChallenge c : challenges) {
+            if (!c.isCompleted() && UserChallenge.CROSS_NO_SHOPPING_RECEIPT.equals(c.getCrossCheck())) {
+                dropConflictingCheckIns(c);
+            }
+        }
         return toResponses(challenges);
     }
 
@@ -260,6 +278,9 @@ public class ChallengeService {
                     .estSavingKg(c.get("est_saving_kg") instanceof Number n ? n.floatValue() : null)
                     .reason(asString(c.get("reason"), 500))
                     .reasonSource(asString(c.get("reason_source"), 20))
+                    .photoVerification(asString(c.get("photo_verification"), 20))
+                    .selfCheckLimit(c.get("self_check_limit") instanceof Number limit ? limit.intValue() : null)
+                    .crossCheck(asString(c.get("cross_check"), 30))
                     .build());
         }
         return userChallengeRepository.saveAll(created);
@@ -287,19 +308,144 @@ public class ChallengeService {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "오늘은 이미 체크했어요. 내일 다시 체크할 수 있어요.");
         }
 
+        // 사진 인증이 있는 챌린지는 직접 체크를 일부만 인정한다. 나머지는 "인증하기"로 채운다.
+        Integer selfLimit = challenge.getSelfCheckLimit();
+        if (selfLimit != null) {
+            long used = checkInRepository.countByUserChallenge_UserChallengeIdAndMethod(userChallengeId, "MANUAL");
+            if (used >= selfLimit) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, selfLimit == 0
+                        ? "이 챌린지는 '인증하기'로 완료할 수 있어요."
+                        : "직접 체크는 이번 주 " + selfLimit + "회까지만 인정돼요. 나머지는 '인증하기'로 채워 주세요.");
+            }
+        }
+        // 무구매 챌린지: 그날 쇼핑 영수증이 등록돼 있으면 인정하지 않는다
+        if (UserChallenge.CROSS_NO_SHOPPING_RECEIPT.equals(challenge.getCrossCheck())) {
+            dropConflictingCheckIns(challenge);
+            if (consumptionRecordRepository.existsShoppingReceipt(userId, today)) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        "오늘 쇼핑 영수증이 등록돼 있어서 '무구매'로 체크할 수 없어요.");
+            }
+        }
+
         checkInRepository.save(ChallengeCheckIn.builder()
                 .userChallenge(challenge).checkDate(today).method("MANUAL").build());
 
         EcoActivityService.ChallengeRewardResult reward = advance(userId, challenge);
         if (reward != null) {
             return new CheckInResponse(
-                    UserChallengeResponse.of(challenge, true), true, challenge.getPoints(), reward.totalPoints(),
+                    toResponse(challenge), true, challenge.getPoints(), reward.totalPoints(),
                     reward.previousLevel(), reward.level(), reward.leveledUp());
         }
         long points = totalPoints(userId);
         int level = CharacterLevel.levelOf(totalSavedCarbon(userId), points);
-        return new CheckInResponse(
-                UserChallengeResponse.of(challenge, true), false, 0, points, level, level, false);
+        return new CheckInResponse(toResponse(challenge), false, 0, points, level, level, false);
+    }
+
+    /**
+     * 사진 인증 (텀블러 + 영수증 / 저탄소 마크 + 영수증).
+     * AI가 사진을 판정하고, 영수증 지문(날짜·시각·금액 해시)이 이미 쓰인 것이면 중복으로 거절한다.
+     * 인증 횟수는 무제한이다. 인증하면 진행도가 오르고(완료 시 포인트), 인증 보너스를 하루 한도 안에서 준다.
+     * 이미 완료한 챌린지도 인증할 수 있다 (이때는 보너스만).
+     */
+    @Transactional
+    public VerifyChallengeResponse verify(Long userId, Long userChallengeId, List<MultipartFile> images) {
+        UserChallenge challenge = userChallengeRepository
+                .findByUserChallengeIdAndUser_UserId(userChallengeId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "챌린지를 찾을 수 없습니다."));
+        String kind = challenge.getPhotoVerification();
+        if (kind == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이 챌린지는 사진 인증을 지원하지 않아요.");
+        }
+        if (images == null || images.stream().allMatch(MultipartFile::isEmpty)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사진을 1장 이상 올려 주세요.");
+        }
+
+        long pointsBefore = totalPoints(userId);
+        int levelBefore = CharacterLevel.levelOf(totalSavedCarbon(userId), pointsBefore);
+
+        Map<String, Object> ai = greenAiClient.verify(kind, images);
+        String code = ai.get("code") instanceof String s ? s : "UNKNOWN";
+        String message = ai.get("message") instanceof String s ? s : "인증 결과를 확인하지 못했어요.";
+        Map<?, ?> receipt = ai.get("receipt") instanceof Map<?, ?> m ? m : Map.of();
+        VerifyChallengeResponse.ReceiptSummary summary = new VerifyChallengeResponse.ReceiptSummary(
+                receipt.get("merchant_name") instanceof String s ? s : null,
+                parseDate(receipt.get("payment_date")),
+                receipt.get("total_amount") instanceof Number n ? n.intValue() : null);
+
+        if (!Boolean.TRUE.equals(ai.get("passed"))) {
+            return VerifyChallengeResponse.rejected(code, message, summary, toResponse(challenge), pointsBefore, levelBefore);
+        }
+        String fingerprint = receipt.get("fingerprint") instanceof String s ? s : null;
+        if (fingerprint == null || fingerprint.isBlank()) {
+            return VerifyChallengeResponse.rejected("RECEIPT_UNREADABLE",
+                    "영수증의 날짜·금액이 잘 보이게 다시 찍어 주세요.", summary, toResponse(challenge), pointsBefore, levelBefore);
+        }
+        if (verificationRepository.existsByFingerprint(fingerprint)) {
+            return VerifyChallengeResponse.rejected("DUPLICATE_RECEIPT",
+                    "이미 인증에 사용한 영수증이에요. 다른 영수증으로 인증해 주세요.", summary, toResponse(challenge), pointsBefore, levelBefore);
+        }
+
+        boolean bonusAllowed = verificationRepository
+                .countByUser_UserIdAndBonusPointsGreaterThanAndCreatedAtGreaterThanEqual(
+                        userId, 0, LocalDate.now().atStartOfDay()) < VERIFY_BONUS_DAILY_CAP;
+        int bonus = bonusAllowed ? VERIFY_BONUS_POINTS : 0;
+        verificationRepository.saveAndFlush(ChallengeVerification.builder()
+                .userChallenge(challenge)
+                .user(challenge.getUser())
+                .kind(kind)
+                .fingerprint(fingerprint)
+                .merchantName(summary.merchantName() == null ? null
+                        : summary.merchantName().substring(0, Math.min(summary.merchantName().length(), 255)))
+                .paymentDate(summary.paymentDate())
+                .totalAmount(summary.totalAmount())
+                .evidence(ai.get("evidence") instanceof String s ? s : null)
+                .bonusPoints(bonus)
+                .build());
+
+        boolean justCompleted = false;
+        if (!challenge.isCompleted()) {
+            justCompleted = advance(userId, challenge) != null;
+        }
+        if (bonus > 0) {
+            ecoActivityService.recordChallengeBonus(userId, challenge.getTitle(), bonus);
+        }
+
+        long pointsAfter = totalPoints(userId);
+        int levelAfter = CharacterLevel.levelOf(totalSavedCarbon(userId), pointsAfter);
+        String note = bonus > 0 ? " 인증 보너스 +" + bonus + "P"
+                : " (오늘 인증 보너스 한도에 도달해서 보너스 포인트는 없어요)";
+        return new VerifyChallengeResponse(
+                true, code, message + note, ai.get("evidence") instanceof String s ? s : null, summary,
+                toResponse(challenge), justCompleted, justCompleted ? challenge.getPoints() : 0, bonus,
+                pointsAfter, levelBefore, levelAfter, levelAfter > levelBefore);
+    }
+
+    private static LocalDate parseDate(Object value) {
+        if (value instanceof String text) {
+            try {
+                return LocalDate.parse(text);
+            } catch (Exception ignored) {
+                return null;
+            }
+        }
+        return null;
+    }
+
+    /** 무구매 챌린지: 이미 한 직접 체크 중, 그날 쇼핑 영수증이 등록된 날은 취소하고 진행도를 되돌린다. */
+    private void dropConflictingCheckIns(UserChallenge challenge) {
+        Long userId = challenge.getUser().getUserId();
+        List<ChallengeCheckIn> conflicts = checkInRepository
+                .findByUserChallenge_UserChallengeIdAndMethod(challenge.getUserChallengeId(), "MANUAL").stream()
+                .filter(ci -> consumptionRecordRepository.existsShoppingReceipt(userId, ci.getCheckDate()))
+                .toList();
+        if (conflicts.isEmpty()) {
+            return;
+        }
+        checkInRepository.deleteAll(conflicts);
+        challenge.resetProgress(challenge.getProgressCount() - conflicts.size());
+        userChallengeRepository.save(challenge);
+        log.info("무구매 체크 취소 (쇼핑 영수증과 충돌): userId={}, challenge={}, 취소 {}건",
+                userId, challenge.getChallengeId(), conflicts.size());
     }
 
     /**
@@ -352,8 +498,21 @@ public class ChallengeService {
                         .map(ci -> ci.getUserChallenge().getUserChallengeId())
                         .collect(Collectors.toSet());
         return challenges.stream()
-                .map(c -> UserChallengeResponse.of(c, checkedToday.contains(c.getUserChallengeId())))
+                .map(c -> toResponse(c, checkedToday.contains(c.getUserChallengeId())))
                 .toList();
+    }
+
+    private UserChallengeResponse toResponse(UserChallenge challenge) {
+        boolean checkedToday = checkInRepository.existsByUserChallenge_UserChallengeIdAndCheckDate(
+                challenge.getUserChallengeId(), LocalDate.now(KST));
+        return toResponse(challenge, checkedToday);
+    }
+
+    private UserChallengeResponse toResponse(UserChallenge challenge, boolean checkedToday) {
+        long selfChecks = checkInRepository.countByUserChallenge_UserChallengeIdAndMethod(
+                challenge.getUserChallengeId(), "MANUAL");
+        long verified = verificationRepository.countByUserChallenge_UserChallengeId(challenge.getUserChallengeId());
+        return UserChallengeResponse.of(challenge, checkedToday, (int) selfChecks, (int) verified);
     }
 
     private long totalPoints(Long userId) {
