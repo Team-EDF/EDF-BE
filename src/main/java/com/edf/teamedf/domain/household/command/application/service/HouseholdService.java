@@ -58,7 +58,8 @@ public class HouseholdService {
     private static final int MAX_MONTHS_BACK = 13;
     /** 고지서 읽기 결과를 저장에 쓸 수 있는 시간. */
     private static final long READ_TTL_HOURS = 2;
-    private static final double TOLERANCE = 0.005;
+    /** 읽은 값과 입력값이 같은지 비교하는 허용 오차 (부동소수점 잡음만 허용; 지역난방은 소수 넷째 자리까지 저장). */
+    private static final double TOLERANCE = 0.00005;
 
     private final HouseholdBillRepository billRepository;
     private final HouseholdBillReadRepository readRepository;
@@ -117,7 +118,7 @@ public class HouseholdService {
         Integer waterKrw = checkedKrw(request.waterKrw(), "수도 금액");
         Double gasM3 = checkedUsage(request.gasM3(), "도시가스 사용량", 1000);
         Integer gasKrw = checkedKrw(request.gasKrw(), "도시가스 금액");
-        Double heatGcal = checkedUsage(request.heatGcal(), "지역난방 사용량", 40);
+        Double heatGcal = checkedUsage(request.heatGcal(), "지역난방 사용량", 40, 10000.0);
         Integer heatKrw = checkedKrw(request.heatKrw(), "지역난방 금액");
         if (!hasPositive(electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "전기·수도·가스·난방 중 하나 이상 값을 입력해 주세요.");
@@ -337,13 +338,18 @@ public class HouseholdService {
     }
 
     private static Double checkedUsage(Double value, String name, double max) {
+        return checkedUsage(value, name, max, 100.0);
+    }
+
+    /** scale: 100 = 소수 둘째 자리, 10000 = 소수 넷째 자리 (지역난방 Gcal: Mcal 고지서를 환산해도 자릿수가 유지되게) */
+    private static Double checkedUsage(Double value, String name, double max, double scale) {
         if (value == null) {
             return null;
         }
         if (value.isNaN() || value < 0 || value > max) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " 값이 올바르지 않아요.");
         }
-        return Math.round(value * 100.0) / 100.0;
+        return Math.round(value * scale) / scale;
     }
 
     private static Integer checkedKrw(Integer value, String name) {
