@@ -52,6 +52,36 @@ public class EcoActivityService {
     private final UserRankingRepository userRankingRepository;
     private final NotificationService notificationService;
 
+    // ------------------------------------------------------------------ 챌린지 보상
+
+    /**
+     * Green Action 챌린지를 완료했을 때 포인트를 지급한다.
+     * 기존 포인트 합계(sumPointsByUserId)와 월간 랭킹에 그대로 반영되도록 활동 기록 1건으로 남긴다.
+     * 절감량(savedCarbon)은 챌린지 예상치가 측정값이 아니라서 0으로 둔다 (캐릭터 진화에 영향 없음).
+     */
+    @Transactional
+    public void recordChallengeReward(Long userId, String challengeTitle, int points) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        String comment = "챌린지 완료 · " + challengeTitle;
+        if (comment.length() > 500) {
+            comment = comment.substring(0, 500);
+        }
+
+        ecoActivityRepository.save(EcoActivity.builder()
+                .user(user)
+                .category(EcoCategory.CHALLENGE)
+                .comment(comment)
+                .savedCarbon(0f)
+                .pointsEarned(Math.max(0, points))
+                .detectionName("챌린지 완료")
+                .status(EcoActivity.Status.APPROVED)
+                .build());
+
+        applyToRanking(user, 0f, Math.max(0, points));
+    }
+
     // ------------------------------------------------------------------ 인증
 
     @Transactional
@@ -64,6 +94,10 @@ public class EcoActivityService {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
         EcoCategory category = EcoCategory.from(request.category());
+        if (category == EcoCategory.CHALLENGE) {
+            // 챌린지 보상 전용 카테고리라 직접 인증으로는 쓸 수 없다
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 카테고리입니다: " + request.category());
+        }
 
         String comment = request.comment();
         if (comment != null && comment.length() > 500) {

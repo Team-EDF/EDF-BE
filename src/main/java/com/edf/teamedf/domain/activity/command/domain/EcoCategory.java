@@ -20,7 +20,14 @@ public enum EcoCategory {
     RECYCLING("분리수거", "재활용 배출 품목", 1.2f, 60),
     ENERGY("대기전력 차단", "멀티탭 스위치 꺼짐", 3.0f, 150),
     SHOPPING_BAG("장바구니 사용", "다회용 장바구니", 1.5f, 80),
-    VEGETARIAN("채식 식단", "채식 한 끼", 2.5f, 130);
+    VEGETARIAN("채식 식단", "채식 한 끼", 2.5f, 130),
+
+    /**
+     * Green Action 챌린지 완료 보상용 카테고리 (사용자가 직접 인증하는 카테고리가 아님).
+     * 포인트는 챌린지마다 달라서 기본값 0이고, 지급 시 챌린지의 포인트를 기록한다.
+     * 절감량은 가정치라서 기록하지 않는다(0).
+     */
+    CHALLENGE("챌린지 완료", "챌린지 보상", 0f, 0);
 
     private final String displayName;
     private final String detectionName;
