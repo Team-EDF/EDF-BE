@@ -1,12 +1,15 @@
 package com.edf.teamedf.domain.dashboard.command.infrastructure;
 
 import com.edf.teamedf.domain.dashboard.command.domain.ConsumptionRecord;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
+import java.util.Collection;
 import java.util.List;
 
 @Repository
@@ -25,4 +28,11 @@ public interface ConsumptionRecordRepository extends JpaRepository<ConsumptionRe
             @Param("to") LocalDate to);
 
     List<ConsumptionRecord> findByImageUrl(String imageUrl);
+
+    // 영수증 캘린더용. OCR 실패(FAILED) 기록은 보여줄 내용이 없어 상태로 걸러낸다.
+    Page<ConsumptionRecord> findByUser_UserIdAndOcrStatusIn(
+            Long userId, Collection<String> ocrStatuses, Pageable pageable);
+
+    // 채팅에서 "등록한 영수증이 하나도 없는 사용자"를 AI 호출 전에 걸러내는 데 쓴다.
+    boolean existsByUser_UserId(Long userId);
 }

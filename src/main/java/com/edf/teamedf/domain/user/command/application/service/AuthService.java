@@ -47,6 +47,10 @@ public class AuthService {
         if (!Boolean.TRUE.equals(request.termsAgreed()) || !Boolean.TRUE.equals(request.privacyAgreed())) {
             throw new IllegalArgumentException("필수 약관에 동의해야 합니다.");
         }
+        // 만 14세 미만 가입 제한 (FE 우회 방지용 서버 검증)
+        if (request.birthDate().isAfter(java.time.LocalDate.now().minusYears(14))) {
+            throw new IllegalArgumentException("만 14세 이상만 가입할 수 있습니다.");
+        }
 
         String verifiedEmail = emailVerificationService.consumeVerifiedEmail(request.emailVerificationToken());
         if (!verifiedEmail.equals(request.email())) {

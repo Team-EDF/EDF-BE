@@ -48,8 +48,19 @@ public class AuthController {
     }
 
     @PostMapping("/oauth2/app")
-    public ResponseEntity<AuthResponse> appSocialLogin(@Valid @RequestBody AppOAuthLoginRequest request) {
-        AuthService.TokenPair pair = appOAuth2Service.loginOrSignUpFromApp(request.provider(), request.token());
+    public ResponseEntity<?> appSocialLogin(@Valid @RequestBody AppOAuthLoginRequest request) {
+        AuthService.TokenPair pair;
+        try {
+            pair = appOAuth2Service.loginOrSignUpFromApp(
+                    request.provider(),
+                    request.token(),
+                    Boolean.TRUE.equals(request.termsAgreed())
+                            && Boolean.TRUE.equals(request.privacyAgreed())
+                            && Boolean.TRUE.equals(request.ageConfirmed()));
+        } catch (IllegalArgumentException e) {
+            // 앱이 "CONSENT_REQUIRED" 를 보고 약관 동의 화면을 띄울 수 있도록 메시지를 그대로 내려준다.
+            return ResponseEntity.badRequest().body(java.util.Map.of("message", String.valueOf(e.getMessage())));
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, pair.refreshCookie().toString())
                 .body(new AuthResponse(pair.accessToken()));

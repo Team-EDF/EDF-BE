@@ -45,4 +45,67 @@ public interface PostRepository extends JpaRepository<Post, Long> {
     Page<Post> findLikedByUser(@Param("userId") Long userId, Pageable pageable);
 
     long countByUser_UserIdAndIsDeletedFalse(Long userId);
+
+    // ==================== 차단 반영 목록 ====================
+    // viewerId 가 차단한 사용자의 글을 제외한다. (페이지 크기가 어긋나지 않도록 DB 에서 걸러낸다)
+
+    /** 최신순 (차단 반영). */
+    @Query("""
+            select p from Post p
+            where p.isDeleted = false
+              and not exists (
+                  select 1 from UserBlock b
+                  where b.blocker.userId = :viewerId and b.blocked = p.user)
+            order by p.createdAt desc
+            """)
+    Page<Post> findVisibleLatest(@Param("viewerId") Long viewerId, Pageable pageable);
+
+    /** 인기순 (차단 반영). */
+    @Query("""
+            select p from Post p
+            where p.isDeleted = false
+              and not exists (
+                  select 1 from UserBlock b
+                  where b.blocker.userId = :viewerId and b.blocked = p.user)
+            order by p.likeCount desc, p.createdAt desc
+            """)
+    Page<Post> findVisiblePopular(@Param("viewerId") Long viewerId, Pageable pageable);
+
+    /** 카테고리별 최신순 (차단 반영). */
+    @Query("""
+            select p from Post p
+            where p.isDeleted = false and p.category = :category
+              and not exists (
+                  select 1 from UserBlock b
+                  where b.blocker.userId = :viewerId and b.blocked = p.user)
+            order by p.createdAt desc
+            """)
+    Page<Post> findVisibleLatestByCategory(
+            @Param("viewerId") Long viewerId, @Param("category") Post.Category category, Pageable pageable);
+
+    /** 카테고리별 인기순 (차단 반영). */
+    @Query("""
+            select p from Post p
+            where p.isDeleted = false and p.category = :category
+              and not exists (
+                  select 1 from UserBlock b
+                  where b.blocker.userId = :viewerId and b.blocked = p.user)
+            order by p.likeCount desc, p.createdAt desc
+            """)
+    Page<Post> findVisiblePopularByCategory(
+            @Param("viewerId") Long viewerId, @Param("category") Post.Category category, Pageable pageable);
+
+    /** 제목/본문 검색 (차단 반영). */
+    @Query("""
+            select p from Post p
+            where p.isDeleted = false
+              and (lower(p.title) like lower(concat('%', :keyword, '%'))
+                   or lower(p.content) like lower(concat('%', :keyword, '%')))
+              and not exists (
+                  select 1 from UserBlock b
+                  where b.blocker.userId = :viewerId and b.blocked = p.user)
+            order by p.createdAt desc
+            """)
+    Page<Post> searchVisible(
+            @Param("viewerId") Long viewerId, @Param("keyword") String keyword, Pageable pageable);
 }

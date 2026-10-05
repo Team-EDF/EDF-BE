@@ -36,6 +36,9 @@ public class PostService {
     private final CommentRepository commentRepository;
     private final PostLikeRepository postLikeRepository;
 
+    /** 비로그인 조회 시 차단 필터에 넘기는 값 (어떤 사용자 id 와도 겹치지 않는다). */
+    private static final Long NO_VIEWER = -1L;
+
     // ==================== CRUD ====================
 
     @Transactional
@@ -59,17 +62,20 @@ public class PostService {
      */
     public Page<PostSummaryResponse> getPosts(Long viewerId, String sort, String search, Post.Category category, Pageable pageable) {
         Pageable page = paging(pageable);
+        // 로그인 사용자가 차단한 작성자의 글은 목록에서 제외한다. 비로그인은 차단이 없으므로 매칭되지 않는 id 를 쓴다.
+        Long blockViewerId = viewerId != null ? viewerId : NO_VIEWER;
+        boolean popular = "popular".equalsIgnoreCase(sort);
         Page<Post> posts;
         if (search != null && !search.isBlank()) {
-            posts = postRepository.search(search.trim(), page);
+            posts = postRepository.searchVisible(blockViewerId, search.trim(), page);
         } else if (category != null) {
-            posts = "popular".equalsIgnoreCase(sort)
-                    ? postRepository.findAllByIsDeletedFalseAndCategoryOrderByLikeCountDescCreatedAtDesc(category, page)
-                    : postRepository.findAllByIsDeletedFalseAndCategoryOrderByCreatedAtDesc(category, page);
-        } else if ("popular".equalsIgnoreCase(sort)) {
-            posts = postRepository.findAllByIsDeletedFalseOrderByLikeCountDescCreatedAtDesc(page);
+            posts = popular
+                    ? postRepository.findVisiblePopularByCategory(blockViewerId, category, page)
+                    : postRepository.findVisibleLatestByCategory(blockViewerId, category, page);
+        } else if (popular) {
+            posts = postRepository.findVisiblePopular(blockViewerId, page);
         } else {
-            posts = postRepository.findAllByIsDeletedFalseOrderByCreatedAtDesc(page);
+            posts = postRepository.findVisibleLatest(blockViewerId, page);
         }
         return enrich(posts, viewerId);
     }

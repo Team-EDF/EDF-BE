@@ -7,5 +7,6 @@ import lombok.Getter;
 @AllArgsConstructor
 public class ChatResponse {
     private Long chatId;
+    private Long conversationId;
     private String feedback;
 }
