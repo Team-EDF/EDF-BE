@@ -71,7 +71,8 @@ public class AuthService {
                 .address(validatedAddress)
                 .addressDetail(request.addressDetail())
                 .zipCode(request.zipCode())
-                .role(request.role() != null ? request.role() : User.Role.MEMBER)
+                // 요청 본문의 role 은 무시한다. 받아 주면 누구나 role=ADMIN 으로 가입해 관리자 API 를 쓸 수 있다.
+                .role(User.Role.MEMBER)
                 .termsAgreed(request.termsAgreed())
                 .privacyAgreed(request.privacyAgreed())
                 .marketingAgreed(request.marketingAgreed() != null ? request.marketingAgreed() : Boolean.FALSE)
