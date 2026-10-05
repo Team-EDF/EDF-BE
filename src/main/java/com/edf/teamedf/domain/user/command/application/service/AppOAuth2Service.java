@@ -23,11 +23,15 @@ public class AppOAuth2Service {
     private final RestClient restClient = RestClient.create();
 
     @Transactional
-    public AuthService.TokenPair loginOrSignUpFromApp(String provider, String token) {
+    public AuthService.TokenPair loginOrSignUpFromApp(String provider, String token, boolean consentGiven) {
         OAuth2UserInfo userInfo = fetchSocialUserInfo(provider, token);
 
         User user = userRepository.findByEmail(userInfo.getEmail())
                 .orElseGet(() -> {
+                    // 신규 소셜 가입은 필수 약관·개인정보 동의 및 만 14세 이상 확인 후에만 계정을 만든다.
+                    if (!consentGiven) {
+                        throw new IllegalArgumentException("CONSENT_REQUIRED: 필수 약관 동의 및 만 14세 이상 확인이 필요합니다.");
+                    }
                     User newUser = User.builder()
                             .uuid(UUID.randomUUID().toString())
                             .email(userInfo.getEmail())
@@ -35,6 +39,9 @@ public class AppOAuth2Service {
                             .role(User.Role.MEMBER)
                             .provider(userInfo.getProvider())
                             .providerId(userInfo.getProviderId())
+                            .termsAgreed(true)
+                            .privacyAgreed(true)
+                            .marketingAgreed(false)
                             .enabled(true)
                             .build();
                     return userRepository.save(newUser);

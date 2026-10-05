@@ -19,6 +19,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -29,6 +30,7 @@ public class CommentService {
     private final PostRepository postRepository;
     private final UserRepository userRepository;
     private final NotificationService notificationService;
+    private final UserBlockService userBlockService;
 
     @Transactional
     public CommentResponse createComment(UserPrincipal principal, Long postId, CommentCreateRequest request) {
@@ -80,8 +82,11 @@ public class CommentService {
 
     public List<CommentResponse> getComments(Long postId, Long viewerId) {
         getActivePost(postId);
+        // 로그인 사용자가 차단한 작성자의 댓글은 내려주지 않는다.
+        Set<Long> blockedIds = userBlockService.getBlockedUserIds(viewerId);
         return commentRepository.findAllByPost_PostIdAndIsDeletedFalseOrderByCreatedAtAsc(postId)
                 .stream()
+                .filter(c -> c.getUser() == null || !blockedIds.contains(c.getUser().getUserId()))
                 .map(c -> CommentResponse.from(c, viewerId))
                 .toList();
     }

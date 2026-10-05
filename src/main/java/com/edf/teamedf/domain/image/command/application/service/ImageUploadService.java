@@ -15,6 +15,7 @@ import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.http.HttpEntity;
@@ -33,6 +34,7 @@ import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
@@ -84,7 +86,7 @@ public class ImageUploadService {
         try {
             response = callAiOcrClassify(user.getUserId(), file);
         } catch (Exception e) {
-            System.err.println("OCR extraction failed: " + e.getMessage());
+            log.error("OCR extraction failed", e);
             ConsumptionRecord record = saveFailedReceiptRecord(user, e.getMessage());
             return ImageUploadResponse.ofReceipt(file, null, record.getRecordId(), null);
         }
@@ -101,7 +103,7 @@ public class ImageUploadService {
         try {
             ocrDataJson = objectMapper.writeValueAsString(response);
         } catch (Exception e) {
-            System.err.println("Failed to serialize OCR data: " + e.getMessage());
+            log.error("Failed to serialize OCR data", e);
         }
 
         Object recordIdRaw = response.get("record_id");
@@ -146,12 +148,17 @@ public class ImageUploadService {
             Map<String, Object> category = item.get("category") instanceof Map<?, ?> c
                     ? (Map<String, Object>) c : Map.of();
 
+            // items.source_msg 는 NOT NULL. 품목명이 비어 있으면 INSERT 가 실패해
+            // 트랜잭션 전체(영수증 기록 포함)가 롤백되므로 대체 문구를 쓴다.
+            String itemName = asString(item.get("item_name"), 500);
+            if (itemName == null || itemName.isBlank()) itemName = "품목명 미확인";
+
             consumptionItemRepository.save(ConsumptionItem.builder()
                     .record(record)
                     .mainCategoryId(asLong(category.get("main_category_id")))
                     .middleCategoryId(asLong(category.get("middle_category_id")))
                     .sourceType("RECEIPT")
-                    .sourceMsg(asString(item.get("item_name"), 500))
+                    .sourceMsg(itemName)
                     .amount(item.get("amount_krw") instanceof Number n ? n.intValue() : 0)
                     .classifyStage(item.get("classify_stage") instanceof Number n ? n.intValue()
                             : category.get("classify_stage") instanceof Number m ? m.intValue() : null)
@@ -175,9 +182,11 @@ public class ImageUploadService {
                 .user(user)
                 .sourceType("RECEIPT")
                 .ocrStatus("FAILED")
-                .ocrErrorMessage(errorMessage != null && errorMessage.length() > 255
-                        ? errorMessage.substring(0, 255) : errorMessage)
+                .ocrErrorMessage(errorMessage != null && errorMessage.length() > 500
+                        ? errorMessage.substring(0, 500) : errorMessage)
                 .recordDate(LocalDate.now())
+                // consumption_records.total_amount 는 NOT NULL 이므로 명시적으로 0을 넣는다.
+                .totalAmount(0)
                 .build();
         return consumptionRecordRepository.save(record);
     }
@@ -210,8 +219,8 @@ public class ImageUploadService {
             String ocrDataJson,
             String ocrStatus
     ) {
-        Integer totalAmount = response.get("total_amount_krw") != null
-                ? ((Number) response.get("total_amount_krw")).intValue() : null;
+        // consumption_records.total_amount 는 NOT NULL (DB 기본값 0) 이라 null 을 넣으면 INSERT 가 실패한다.
+        Integer totalAmount = response.get("total_amount_krw") instanceof Number n ? n.intValue() : 0;
 
         Float totalCarbonKg = response.get("total_carbon_kg") != null
                 ? ((Number) response.get("total_carbon_kg")).floatValue() : null;

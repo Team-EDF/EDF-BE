@@ -86,6 +86,8 @@ public class SecurityConfig {
                         .requestMatchers("/users/me").authenticated()
                         // 회원 목록/검색/단건 조회는 이메일·전화번호를 포함하므로 관리자 전용
                         .requestMatchers("/users/**").hasRole("ADMIN")
+                        // 신고 목록 조회/처리 등 운영자 기능
+                        .requestMatchers("/admin/**").hasRole("ADMIN")
 
                         .anyRequest().authenticated())
 
