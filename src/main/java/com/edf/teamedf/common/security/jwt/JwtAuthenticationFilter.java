@@ -1,5 +1,6 @@
 package com.edf.teamedf.common.security.jwt;
 
+import com.edf.teamedf.common.security.auth.RefreshTokenStore;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
@@ -20,6 +21,7 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtTokenProvider jwtTokenProvider;
+    private final RefreshTokenStore refreshTokenStore;
 
     @Override
     protected void doFilterInternal(HttpServletRequest req,
@@ -33,6 +35,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
             Claims claims = jwtTokenProvider.getClaims(token);
             String uuid = claims.getSubject();
+
+            // 탈퇴한 계정의 토큰은 만료 전이라도 인증하지 않는다.
+            if (refreshTokenStore.isWithdrawn(uuid)) {
+                chain.doFilter(req, res);
+                return;
+            }
             String email = claims.get("email", String.class);
             String name = claims.get("name", String.class);
             String role = claims.get("role", String.class);

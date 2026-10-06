@@ -1,6 +1,7 @@
 package com.edf.teamedf.common.config;
 
 import com.edf.teamedf.common.security.auth.CustomUserDetailsService;
+import com.edf.teamedf.common.security.auth.RefreshTokenStore;
 import com.edf.teamedf.common.security.jwt.JwtAuthenticationFilter;
 import com.edf.teamedf.common.security.jwt.JwtTokenProvider;
 import com.edf.teamedf.common.security.oauth.CustomOidcUserService;
@@ -37,6 +38,7 @@ public class SecurityConfig {
 //    private final OAuth2UserService oAuth2UserService;
 //    private final CustomOidcUserService customOidcUserService;
     private final JwtTokenProvider jwtTokenProvider;
+    private final RefreshTokenStore refreshTokenStore;
     private final CustomUserDetailsService userDetailsService;
 
     @Bean
@@ -107,7 +109,7 @@ public class SecurityConfig {
                 .userDetailsService(userDetailsService);
 
         http.addFilterBefore(
-                new JwtAuthenticationFilter(jwtTokenProvider),
+                new JwtAuthenticationFilter(jwtTokenProvider, refreshTokenStore),
                 UsernamePasswordAuthenticationFilter.class);
 
         return http.build();

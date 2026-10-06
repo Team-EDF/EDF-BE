@@ -14,7 +14,6 @@ import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
-import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
@@ -30,10 +29,10 @@ public class UserProfileService {
     private final CommentRepository commentRepository;
     private final PostLikeRepository postLikeRepository;
     private final EcoActivityRepository ecoActivityRepository;
-    private final PasswordEncoder passwordEncoder;
     private final RefreshTokenStore refreshTokenStore;
+    private final UserDataCleanupService userDataCleanupService;
 
-    /** 비밀번호가 없는 계정(소셜 로그인)에서 요구하는 확인 문구. */
+    /** 탈퇴 의사 확인 문구. 앱(WithdrawScreen)의 CONFIRM_TEXT 와 같아야 한다. */
     private static final String CONFIRM_TEXT = "탈퇴합니다";
 
     public MeResponse getMe(Long userId) {
@@ -57,9 +56,10 @@ public class UserProfileService {
     }
 
     /**
-     * 회원 탈퇴. 본인 확인을 거친 뒤 계정을 익명화하고 세션을 끊는다.
+     * 회원 탈퇴. 확인 문구로 의사를 확인한 뒤 연결된 개인 데이터를 삭제하고, 계정을 익명화하고, 세션을 끊는다.
      *
      * 게시글·댓글은 지우지 않는다. 작성자 이름만 '탈퇴한 회원'으로 바뀐다.
+     * 그 밖의 데이터(영수증·소비 기록, 활동 인증, 통계·랭킹, 이미지, 알림, 좋아요, 차단)는 모두 삭제한다.
      */
     @Transactional
     public void withdraw(Long userId, WithdrawRequest request) {
@@ -69,34 +69,32 @@ public class UserProfileService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "이미 탈퇴한 계정입니다.");
         }
 
-        verifyOwner(user, request);
+        // 관리자 계정은 탈퇴할 수 없다 (신고 처리 등 운영 권한을 가진 계정이 사라지는 것을 막는다).
+        if (user.getRole() == User.Role.ADMIN) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "관리자 계정은 탈퇴할 수 없습니다.");
+        }
+
+        verifyConfirmText(request);
 
         String uuid = user.getUuid();
+
+        // 벌크 삭제가 영속성 컨텍스트를 비우므로 이후에는 사용자를 다시 조회해서 익명화한다.
+        userDataCleanupService.deleteUserData(userId);
+        user = getUser(userId);
         user.withdraw(request != null ? request.reason() : null);
 
-        // 남아 있는 refresh token 을 지워 다른 기기의 세션도 끊는다.
+        // 남아 있는 refresh token 을 지워 다른 기기의 세션도 끊고,
+        // 이미 발급된 access token 도 만료 전까지 쓰지 못하게 막는다.
         refreshTokenStore.delete(uuid);
+        refreshTokenStore.markWithdrawn(uuid);
         log.info("회원 탈퇴 처리 완료 (userId={})", userId);
     }
 
     /**
-     * 본인 확인. 비밀번호가 있는 계정은 비밀번호로, 소셜 계정은 확인 문구로 확인한다.
-     * 소셜 계정에는 대조할 비밀번호가 없어서 비밀번호만 요구하면 탈퇴 자체가 불가능해진다.
+     * 탈퇴 의사 확인. 로그인(access token)으로 본인임은 이미 확인됐으므로 비밀번호는 다시 묻지 않고,
+     * 실수로 탈퇴하지 않도록 확인 문구만 받는다. 소셜 계정과 이메일 계정 모두 같은 방식이다.
      */
-    private void verifyOwner(User user, WithdrawRequest request) {
-        String storedPassword = user.getPassword();
-
-        if (storedPassword != null && !storedPassword.isBlank()) {
-            String input = request != null ? request.password() : null;
-            if (input == null || input.isBlank()) {
-                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "비밀번호를 입력해 주세요.");
-            }
-            if (!passwordEncoder.matches(input, storedPassword)) {
-                throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "비밀번호가 일치하지 않습니다.");
-            }
-            return;
-        }
-
+    private void verifyConfirmText(WithdrawRequest request) {
         String confirmText = request != null ? request.confirmText() : null;
         if (confirmText == null || !CONFIRM_TEXT.equals(confirmText.trim())) {
             throw new ResponseStatusException(
