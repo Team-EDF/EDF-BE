@@ -10,6 +10,7 @@ import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import jakarta.servlet.http.Cookie;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
@@ -20,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Arrays;
 import java.util.Map;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class AuthService {
@@ -52,13 +54,24 @@ public class AuthService {
             throw new IllegalArgumentException("만 14세 이상만 가입할 수 있습니다.");
         }
 
-        String verifiedEmail = emailVerificationService.consumeVerifiedEmail(request.emailVerificationToken());
-        if (!verifiedEmail.equals(request.email())) {
-            throw new IllegalArgumentException("인증된 이메일과 입력한 이메일이 일치하지 않습니다.");
+        // 주소 정규화는 부가 기능이다. 외부 API(Google Geocoding) 장애로 가입 자체가 막히지 않도록
+        // 실패하면 입력값을 그대로 쓴다. 1회용 인증 토큰을 소비하기 전에 먼저 수행한다.
+        String validatedAddress;
+        try {
+            validatedAddress = addressValidatorService.validateAndFormat(request.address());
+        } catch (RuntimeException e) {
+            log.warn("주소 검증 실패, 입력 주소를 그대로 저장합니다: {}", e.getMessage());
+            validatedAddress = request.address();
         }
 
-        String phone = phoneVerificationService.consumeVerifiedPhone(request.phoneVerificationToken());
-        String validatedAddress = addressValidatorService.validateAndFormat(request.address());
+        // 휴대폰 인증은 선택이다. 앱 가입 흐름에 SMS 인증 단계가 없으므로 토큰이 없으면 번호 없이 가입한다.
+        String phone = phoneVerificationService.consumeVerifiedPhoneOrNull(request.phoneVerificationToken());
+
+        // 이메일 인증 토큰은 1회용이므로, 실패할 수 있는 다른 검증을 모두 끝낸 뒤 마지막에 소비한다.
+        String verifiedEmail = emailVerificationService.consumeVerifiedEmail(request.emailVerificationToken());
+        if (!verifiedEmail.equalsIgnoreCase(request.email().trim())) {
+            throw new IllegalArgumentException("인증된 이메일과 입력한 이메일이 일치하지 않습니다.");
+        }
 
         User user = User.builder()
                 .email(request.email())

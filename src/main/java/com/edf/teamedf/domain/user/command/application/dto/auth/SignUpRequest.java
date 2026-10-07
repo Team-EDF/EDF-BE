@@ -20,7 +20,8 @@ public record SignUpRequest(
         String addressDetail,
         String zipCode,
         User.Role role,
-        @NotBlank String phoneVerificationToken,
+        // 앱 가입 흐름에서 휴대폰 인증 단계가 빠졌으므로 선택값이다 (있으면 인증된 번호를 저장).
+        String phoneVerificationToken,
         @NotBlank String emailVerificationToken,
         @NotNull Boolean termsAgreed,
         @NotNull Boolean privacyAgreed,

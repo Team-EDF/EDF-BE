@@ -66,6 +66,18 @@ public class PhoneVerificationService {
         return phone;
     }
 
+    // ── 회원가입용: 토큰이 없거나 유효하지 않으면 예외 대신 null (전화번호 인증은 선택) ──
+    public String consumeVerifiedPhoneOrNull(String verificationToken) {
+        if (verificationToken == null || verificationToken.isBlank()) {
+            return null;
+        }
+        String phone = redisTemplate.opsForValue().get(VERIFIED_PREFIX + verificationToken);
+        if (phone != null) {
+            redisTemplate.delete(VERIFIED_PREFIX + verificationToken);
+        }
+        return phone;
+    }
+
     // ── 6자리 OTP 생성 ─────────────────────────────────────────
     private String generateOtp() {
         return String.format("%06d", RANDOM.nextInt(1_000_000));
