@@ -68,7 +68,14 @@ public class AuthController {
 
     @PostMapping("/refresh")
     public ResponseEntity<AuthResponse> refresh(HttpServletRequest request) {
-        AuthService.TokenPair pair = authService.refresh(request);
+        AuthService.TokenPair pair;
+        try {
+            pair = authService.refresh(request);
+        } catch (IllegalArgumentException e) {
+            // 만료·불일치·없는 리프레시 토큰은 서버 오류(500)가 아니라 "다시 로그인 필요"(401)로 알려 준다.
+            // 앱은 이 401로 갱신 거절(로그인 화면)과 서버 장애(로그인 유지)를 구분한다.
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, pair.refreshCookie().toString())
                 .body(new AuthResponse(pair.accessToken()));
