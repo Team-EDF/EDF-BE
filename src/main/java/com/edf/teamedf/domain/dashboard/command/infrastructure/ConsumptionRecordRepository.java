@@ -35,4 +35,13 @@ public interface ConsumptionRecordRepository extends JpaRepository<ConsumptionRe
 
     // 채팅에서 "등록한 영수증이 하나도 없는 사용자"를 AI 호출 전에 걸러내는 데 쓴다.
     boolean existsByUser_UserId(Long userId);
+
+    /**
+     * 그 날짜에 확정된 "쇼핑소비재" 영수증이 있는지 (무구매 챌린지 교차 검증용).
+     * AI/대시보드가 쓰는 영수증 ocr_data JSON에 메인 카테고리 이름이 들어 있다.
+     */
+    @Query("SELECT COUNT(r) > 0 FROM ConsumptionRecord r " +
+           "WHERE r.user.userId = :userId AND r.recordDate = :date " +
+           "  AND UPPER(r.ocrStatus) = 'SUCCESS' AND r.ocrData LIKE '%쇼핑소비재%'")
+    boolean existsShoppingReceipt(@Param("userId") Long userId, @Param("date") LocalDate date);
 }

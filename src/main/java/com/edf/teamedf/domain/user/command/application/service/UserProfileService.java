@@ -114,7 +114,7 @@ public class UserProfileService {
         Long points = ecoActivityRepository.sumPointsByUserId(userId);
         long totalPoints = points == null ? 0L : points;
 
-        int level = CharacterLevel.levelOf(totalSavedCarbon);
+        int level = CharacterLevel.levelOf(totalSavedCarbon, totalPoints);
 
         return new MeResponse.Stats(
                 postCount, commentCount, likedPostCount, activityCount,

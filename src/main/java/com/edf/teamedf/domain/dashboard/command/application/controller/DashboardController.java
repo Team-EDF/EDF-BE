@@ -7,6 +7,7 @@ import com.edf.teamedf.domain.activity.command.application.dto.CertifyResponse;
 import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyRequest;
 import com.edf.teamedf.domain.activity.command.application.dto.TransitCertifyResponse;
 import com.edf.teamedf.domain.activity.command.application.service.EcoActivityService;
+import com.edf.teamedf.domain.challenge.command.application.service.ChallengeService;
 import com.edf.teamedf.domain.dashboard.command.application.dto.CarbonScoreResponse;
 import com.edf.teamedf.domain.dashboard.command.application.dto.CategoryCarbonRatioResponse;
 import com.edf.teamedf.domain.dashboard.command.application.dto.MonthlySpendingResponse;
@@ -30,6 +31,7 @@ public class DashboardController {
 
     private final DashboardService dashboardService;
     private final EcoActivityService ecoActivityService;
+    private final ChallengeService challengeService;
 
     // 탄소 절감 점수 조회 (이번달 기준)
     @GetMapping("/carbon-score")
@@ -84,6 +86,12 @@ public class DashboardController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestBody TransitCertifyRequest request) {
         Long userId = AuthUtils.requireUserId(principal);
-        return ResponseEntity.ok(ecoActivityService.certifyTransit(userId, request));
+        TransitCertifyResponse response = ecoActivityService.certifyTransit(userId, request);
+        // 서버가 경로로 검증해 인정한 이동만, 서버가 계산한 거리로 이번 주 대중교통 챌린지에 하루 1회 반영한다
+        // (반영이 실패해도 이동 인증은 성공 처리)
+        if (response.success()) {
+            challengeService.onTransitCertified(userId, request.mode(), response.distanceKm());
+        }
+        return ResponseEntity.ok(response);
     }
 }
