@@ -21,6 +21,8 @@ public record HouseholdBillResponse(
         Double gasM3,
         Integer gasKrw,
         Double heatGcal,
+        Double heatUsage,
+        String heatUnit,
         Integer heatKrw,
         Float carbonKg,
         boolean estimated,

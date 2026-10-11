@@ -120,7 +120,38 @@ public class HouseholdService {
         Integer gasKrw = checkedKrw(request.gasKrw(), "도시가스 금액");
         Double heatGcal = checkedUsage(request.heatGcal(), "지역난방 사용량", 40, 10000.0);
         Integer heatKrw = checkedKrw(request.heatKrw(), "지역난방 금액");
-        if (!hasPositive(electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw)) {
+        Double heatUsage = checkedUsage(request.heatUsage(), "지역난방 원본 사용량", 100000, 10000.0);
+        String heatUnit = checkedHeatUnit(request.heatUnit());
+        if ((heatUsage == null) != (heatUnit == null)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지역난방 원본 사용량과 단위를 함께 입력해 주세요.");
+        }
+        // 원본 난방 사용량과 Gcal 환산값의 일치 여부 검증
+        if (heatUsage != null && heatUnit != null) {
+            Double expectedGcal = switch (heatUnit) {
+                case "Gcal" -> heatUsage;
+                case "Mcal" -> heatUsage / 1000.0;
+                case "kcal" -> heatUsage / 1_000_000.0;
+                case "GJ" -> heatUsage / 4.1868;
+                case "MJ" -> heatUsage / 4186.8;
+                case "kWh" -> heatUsage * 3.6 / 4186.8;
+                case "MWh" -> heatUsage * 3.6 / 4.1868;
+                default -> null; // m3, ton은 열량으로 직접 환산 불가
+            };
+
+            if (expectedGcal == null) {
+                if (heatGcal != null) {
+                    throw new ResponseStatusException(
+                            HttpStatus.BAD_REQUEST,
+                            "난방 m3·ton 사용량은 Gcal로 직접 환산할 수 없어요.");
+                }
+            } else if (heatGcal != null
+                    && Math.abs(heatGcal - expectedGcal) > 0.00005) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "지역난방 Gcal 환산값이 원본 사용량과 일치하지 않아요.");
+            }
+        }
+        if (!hasPositive(electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw, heatUsage)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "전기·수도·가스·난방 중 하나 이상 값을 입력해 주세요.");
         }
 
@@ -139,7 +170,8 @@ public class HouseholdService {
             HouseholdBillRead read = loadRead(userId, request.readId(), month);
             Map<String, Object> readValues = fromJson(read.getValuesJson());
             for (Utility utility : Utility.values()) {
-                if (matchesRead(utility, values.get(utility), readValues)) {
+                if (matchesRead(utility, values.get(utility), readValues)
+                        && (utility != Utility.HEAT || matchesHeatRead(heatUsage, heatUnit, readValues))) {
                     verified.add(utility.key());
                 }
             }
@@ -155,7 +187,8 @@ public class HouseholdService {
         if (existing.isPresent()) {
             for (Utility utility : Utility.values()) {
                 if (existing.get().isVerified(utility) && !verified.contains(utility.key())
-                        && sameAsStored(existing.get(), utility, values.get(utility))) {
+                        && sameAsStored(existing.get(), utility, values.get(utility))
+                        && (utility != Utility.HEAT || sameHeatStored(existing.get(), heatUsage, heatUnit))) {
                     verified.add(utility.key());
                 }
             }
@@ -163,7 +196,7 @@ public class HouseholdService {
 
         // 탄소 계산 (배출계수는 AI 서버가 관리한다)
         Map<String, Object> carbon = greenAiClient.householdCarbon(toAiValues(
-                electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw));
+                electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw, heatUsage, heatUnit));
         float carbonKg = carbon.get("total_kg") instanceof Number n ? n.floatValue() : 0f;
         boolean estimated = Boolean.TRUE.equals(carbon.get("estimated"));
         String carbonJson = toJson(carbon.get("items"));
@@ -174,7 +207,7 @@ public class HouseholdService {
 
         HouseholdBill bill = existing.orElseGet(() -> HouseholdBill.builder().user(user).billMonth(month.atDay(1)).build());
         bill.apply(electricityKwh, electricityKrw, waterM3, waterKrw, gasM3, gasKrw, heatGcal, heatKrw,
-                verifiedKeys, fingerprint, carbonKg, carbonJson, estimated);
+                verifiedKeys, fingerprint, carbonKg, carbonJson, estimated, heatUsage, heatUnit);
         bill = billRepository.saveAndFlush(bill);
 
         // 절감 포인트: 이 달과, (이 달이 비교 기준이 될 수 있는) 1년 뒤 같은 달을 다시 평가한다
@@ -238,6 +271,8 @@ public class HouseholdService {
     }
 
     private HouseholdSavings.Comparison compareFor(Utility utility, HouseholdBill bill, List<HouseholdBill> all) {
+        // 기존 절감 포인트는 Gcal 기준으로만 비교한다. m3/MWh 원본값을
+        // Gcal로 간주해 비교하면 잘못된 포인트가 지급될 수 있다.
         List<HouseholdSavings.MonthUsage> others = all.stream()
                 .filter(b -> !Objects.equals(b.getBillId(), bill.getBillId()))
                 .map(b -> new HouseholdSavings.MonthUsage(YearMonth.from(b.getBillMonth()), b.usageOf(utility), b.isVerified(utility)))
@@ -269,7 +304,9 @@ public class HouseholdService {
         List<String> verifiedKeys = new ArrayList<>();
         int provided = 0;
         for (Utility utility : Utility.values()) {
-            boolean has = bill.usageOf(utility) != null || bill.krwOf(utility) != null;
+            boolean has = bill.usageOf(utility) != null
+                    || bill.krwOf(utility) != null
+                    || (utility == Utility.HEAT && bill.getHeatUsage() != null);
             if (has) {
                 provided++;
             }
@@ -286,13 +323,17 @@ public class HouseholdService {
             }
         }
         long providedVerified = verifiedKeys.stream().filter(k -> Utility.valueOfKey(k)
-                .map(u -> bill.usageOf(u) != null || bill.krwOf(u) != null).orElse(false)).count();
+                .map(u -> bill.usageOf(u) != null
+                        || bill.krwOf(u) != null
+                        || (u == Utility.HEAT && bill.getHeatUsage() != null))
+                .orElse(false)).count();
         String source = providedVerified == 0 ? "MANUAL" : providedVerified >= provided ? "BILL" : "PARTIAL";
 
         return new HouseholdBillResponse(
                 bill.getBillId(), YearMonth.from(bill.getBillMonth()).toString(),
                 bill.getElectricityKwh(), bill.getElectricityKrw(), bill.getWaterM3(), bill.getWaterKrw(),
-                bill.getGasM3(), bill.getGasKrw(), bill.getHeatGcal(), bill.getHeatKrw(),
+                bill.getGasM3(), bill.getGasKrw(), bill.getHeatGcal(),
+                bill.getHeatUsage(), bill.getHeatUnit(), bill.getHeatKrw(),
                 bill.getCarbonKg(), Boolean.TRUE.equals(bill.getEstimated()), items, source, verifiedKeys, comparisons,
                 bill.getRewardPoints() == null ? 0 : bill.getRewardPoints(), pointsAwarded, message,
                 totalPoints, levelBefore, levelAfter, levelAfter > levelBefore);
@@ -327,13 +368,25 @@ public class HouseholdService {
         try {
             month = YearMonth.parse(text == null ? "" : text.trim());
         } catch (Exception e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사용 월을 YYYY-MM 형식으로 입력해 주세요.");
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "사용 월을 YYYY-MM 형식으로 입력해 주세요.");
         }
+
         YearMonth current = YearMonth.from(LocalDate.now(KST));
-        if (month.isAfter(current) || month.isBefore(current.minusMonths(MAX_MONTHS_BACK))) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+
+        // 로컬 테스트에서만 과거 관리비 저장 허용
+        boolean allowOldBills =
+                "true".equalsIgnoreCase(System.getenv("HOUSEHOLD_ALLOW_OLD_BILLS"))
+                        && "local".equalsIgnoreCase(System.getenv("SPRING_PROFILES_ACTIVE"));
+
+        if (month.isAfter(current)
+                || (!allowOldBills && month.isBefore(current.minusMonths(MAX_MONTHS_BACK)))) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
                     "이번 달부터 최근 " + MAX_MONTHS_BACK + "개월 안의 관리비만 기록할 수 있어요.");
         }
+
         return month;
     }
 
@@ -350,6 +403,26 @@ public class HouseholdService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, name + " 값이 올바르지 않아요.");
         }
         return Math.round(value * scale) / scale;
+    }
+
+    private static String checkedHeatUnit(String unit) {
+        if (unit == null || unit.isBlank()) {
+            return null;
+        }
+
+        return switch (unit.trim().toLowerCase(java.util.Locale.ROOT)) {
+            case "m3", "m³", "㎥" -> "m3";
+            case "ton", "t", "톤" -> "ton";
+            case "gcal" -> "Gcal";
+            case "mcal" -> "Mcal";
+            case "kcal", "㎉" -> "kcal";
+            case "gj" -> "GJ";
+            case "mj" -> "MJ";
+            case "kwh" -> "kWh";
+            case "mwh" -> "MWh";
+            default -> throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "지원하지 않는 지역난방 단위예요.");
+        };
     }
 
     private static Integer checkedKrw(Integer value, String name) {
@@ -405,7 +478,8 @@ public class HouseholdService {
         Double readUsage = readValues.get(usageKey) instanceof Number n ? n.doubleValue() : null;
         Double readKrw = readValues.get(prefix + "_krw") instanceof Number n ? n.doubleValue() : null;
         if (readUsage == null && readKrw == null) {
-            return false;
+            // 난방은 Gcal/금액 없이 원본 사용량만 판독되는 고지서도 있다.
+            return utility == Utility.HEAT && readValues.get("heat_usage") instanceof Number;
         }
         return equalValue(input[0], readUsage) && equalValue(input[1], readKrw);
     }
@@ -417,6 +491,19 @@ public class HouseholdService {
         return read != null && Math.abs(input - read) <= TOLERANCE;
     }
 
+    private boolean matchesHeatRead(Double usage, String unit, Map<String, Object> readValues) {
+        Double readUsage = readValues.get("heat_usage") instanceof Number n ? n.doubleValue() : null;
+        String readUnit = readValues.get("heat_unit") instanceof String s ? checkedHeatUnit(s) : null;
+        // 과거 판독 결과에는 원본 필드가 없을 수 있다. 이 경우 원본 입력도 없어야 한다.
+        return equalValue(usage == null ? Double.NaN : usage, readUsage)
+                && Objects.equals(unit, readUnit);
+    }
+
+    private static boolean sameHeatStored(HouseholdBill stored, Double usage, String unit) {
+        return equalValue(usage == null ? Double.NaN : usage, stored.getHeatUsage())
+                && Objects.equals(unit, stored.getHeatUnit());
+    }
+
     private static boolean sameAsStored(HouseholdBill stored, Utility utility, double[] input) {
         Double usage = stored.usageOf(utility);
         Integer krw = stored.krwOf(utility);
@@ -424,7 +511,8 @@ public class HouseholdService {
     }
 
     private static Map<String, Object> toAiValues(Double electricityKwh, Integer electricityKrw, Double waterM3, Integer waterKrw,
-                                                  Double gasM3, Integer gasKrw, Double heatGcal, Integer heatKrw) {
+                                                  Double gasM3, Integer gasKrw, Double heatGcal, Integer heatKrw,
+                                                  Double heatUsage, String heatUnit) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put("electricity_kwh", electricityKwh);
         values.put("electricity_krw", electricityKrw);
@@ -434,6 +522,8 @@ public class HouseholdService {
         values.put("gas_krw", gasKrw);
         values.put("heat_gcal", heatGcal);
         values.put("heat_krw", heatKrw);
+        values.put("heat_usage", heatUsage);
+        values.put("heat_unit", heatUnit);
         return values;
     }
 
