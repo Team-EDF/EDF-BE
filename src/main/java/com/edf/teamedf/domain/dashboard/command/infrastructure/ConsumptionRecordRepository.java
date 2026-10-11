@@ -44,4 +44,7 @@ public interface ConsumptionRecordRepository extends JpaRepository<ConsumptionRe
            "WHERE r.user.userId = :userId AND r.recordDate = :date " +
            "  AND UPPER(r.ocrStatus) = 'SUCCESS' AND r.ocrData LIKE '%쇼핑소비재%'")
     boolean existsShoppingReceipt(@Param("userId") Long userId, @Param("date") LocalDate date);
+
+    // AI 상담용: 사용자 영수증 전체 조회 (최신순)
+    List<ConsumptionRecord> findByUser_UserIdOrderByRecordDateDescRecordIdDesc(Long userId);
 }

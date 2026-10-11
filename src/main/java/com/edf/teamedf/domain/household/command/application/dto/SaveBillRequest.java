@@ -18,6 +18,8 @@ public record SaveBillRequest(
         Double gasM3,
         Integer gasKrw,
         Double heatGcal,
+        Double heatUsage,    // 추가: 고지서에 표시된 난방 원본 사용량
+        String heatUnit,     // 추가: 원본 단위 (m3, MWh, Gcal 등)
         Integer heatKrw,
         String readId
 ) {

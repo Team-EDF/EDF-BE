@@ -106,26 +106,10 @@ public class ImageUploadService {
             log.error("Failed to serialize OCR data", e);
         }
 
-        Object recordIdRaw = response.get("record_id");
-        ConsumptionRecord record;
-
-        if (recordIdRaw != null) {
-            // AI가 이미 consumption_records/items에 저장하고 이미지도 자기 스토리지(S3/로컬)에 저장했다.
-            // 그 행을 그대로 이어받는다 - 백엔드가 따로 insert하면 record_id가 갈라지고
-            // items 분류 정보 및 image_url이 유실된다.
-            Long recordId = ((Number) recordIdRaw).longValue();
-            record = consumptionRecordRepository.findById(recordId)
-                    .orElseThrow(() -> new IllegalStateException(
-                            "AI가 반환한 record_id의 레코드를 찾을 수 없습니다: " + recordId));
-
-            record.setRawText(ocrText);
-            record.setOcrData(ocrDataJson);
-            record.setOcrStatus("WAITING_CONFIRM");
-            // imageUrl은 AI가 저장 시점에 이미 채워뒀으므로 덮어쓰지 않는다.
-        } else {
-            // AI 쪽 분류/OCR은 성공했지만 AI 내부 DB 저장이 실패했을 때만 백엔드가 자체 레코드를 만든다.
-            record = buildRecordFromAiResponse(user, imageUrl, response, ocrText, ocrDataJson, "WAITING_CONFIRM");
-        }
+        // AI는 OCR/분류 결과만 반환하고, 소비 기록은 Spring Boot DB에 신규 저장한다.
+        // 서로 다른 DB의 record_id를 혼동하지 않도록 AI 응답의 record_id는 사용하지 않는다.
+        ConsumptionRecord record = buildRecordFromAiResponse(
+                user, imageUrl, response, ocrText, ocrDataJson, "WAITING_CONFIRM");
 
         record.setMerchantName(asString(response.get("merchant_name"), 255));
         record.setPaymentLocation(asString(response.get("payment_location"), 500));
@@ -135,7 +119,7 @@ public class ImageUploadService {
         return ImageUploadResponse.ofReceipt(file, record.getImageUrl(), record.getRecordId(), ocrText);
     }
 
-    // AI 응답의 item_results를 items 테이블로 옮긴다 (AI 피드백이 items를 직접 조회함).
+    // AI 응답의 item_results를 Spring Boot DB의 품목 테이블로 저장한다.
     @SuppressWarnings("unchecked")
     private void replaceItems(ConsumptionRecord record, Map<String, Object> response) {
         consumptionItemRepository.deleteByRecord_RecordId(record.getRecordId());
@@ -203,7 +187,7 @@ public class ImageUploadService {
             }
         });
         // 백엔드가 JWT로 인증한 사용자 ID를 AI에 전달한다.
-        // 안 보내면 AI가 consumption_records.user_id를 NULL로 저장해 사용자 소유 조회가 깨진다.
+        // OCR 요청의 사용자 컨텍스트로 활용한다. 소비 기록은 Spring Boot DB에 저장한다.
         body.add("user_id", userId);
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
@@ -222,8 +206,12 @@ public class ImageUploadService {
         // consumption_records.total_amount 는 NOT NULL (DB 기본값 0) 이라 null 을 넣으면 INSERT 가 실패한다.
         Integer totalAmount = response.get("total_amount_krw") instanceof Number n ? n.intValue() : 0;
 
-        Float totalCarbonKg = response.get("total_carbon_kg") != null
-                ? ((Number) response.get("total_carbon_kg")).floatValue() : null;
+        // 품목별 합산값이 없을 때만 가맹점 기준 추정치를 사용한다.
+        Object carbonValue = response.get("total_carbon_kg");
+        if (carbonValue == null) {
+            carbonValue = response.get("merchant_carbon_kg");
+        }
+        Float totalCarbonKg = carbonValue instanceof Number n ? n.floatValue() : null;
 
         LocalDate recordDate = LocalDate.now();
         if (response.get("payment_date") != null) {

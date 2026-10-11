@@ -67,6 +67,14 @@ public class SecurityConfig {
                 // 인가 설정 — 아래에 명시한 경로만 공개, 나머지는 로그인 필요
                 // ========================================================
                 .authorizeHttpRequests(auth -> auth
+
+                        // Swagger UI 및 API 문서 접근 허용
+                        .requestMatchers(
+                                "/swagger-ui/**",
+                                "/swagger-ui.html",
+                                "/v3/api-docs/**"
+                        ).permitAll()
+
                         // 에러 응답 포워딩 (막으면 404/400 등이 전부 401 로 바뀜)
                         .requestMatchers("/error").permitAll()
 

@@ -72,6 +72,14 @@ public class HouseholdBill {
     @Column(name = "carbon_kg")
     private Float carbonKg;
 
+    /** 고지서에 표시된 난방 원본 사용량 */
+    @Column(name = "heat_usage")
+    private Double heatUsage;
+
+    /** 난방 원본 단위: m3, MWh, Gcal 등 */
+    @Column(name = "heat_unit", length = 20)
+    private String heatUnit;
+
     /** 항목별 탄소 내역 JSON (AI 계산 결과의 items) */
     @Column(name = "carbon_json", columnDefinition = "TEXT")
     private String carbonJson;
@@ -94,11 +102,17 @@ public class HouseholdBill {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+
     /** 입력값과 계산 결과를 한꺼번에 덮어쓴다. */
-    public void apply(Double electricityKwh, Integer electricityKrw, Double waterM3, Integer waterKrw,
-                      Double gasM3, Integer gasKrw, Double heatGcal, Integer heatKrw,
-                      String verifiedKeys, String billFingerprint,
-                      Float carbonKg, String carbonJson, boolean estimated) {
+    public void apply(
+            Double electricityKwh, Integer electricityKrw,
+            Double waterM3, Integer waterKrw,
+            Double gasM3, Integer gasKrw,
+            Double heatGcal, Integer heatKrw,
+            String verifiedKeys, String billFingerprint,
+            Float carbonKg, String carbonJson, boolean estimated,
+            Double heatUsage, String heatUnit) {
+
         this.electricityKwh = electricityKwh;
         this.electricityKrw = electricityKrw;
         this.waterM3 = waterM3;
@@ -107,12 +121,18 @@ public class HouseholdBill {
         this.gasKrw = gasKrw;
         this.heatGcal = heatGcal;
         this.heatKrw = heatKrw;
+
+        // 난방 원본 사용량 및 단위 저장
+        this.heatUsage = heatUsage;
+        this.heatUnit = heatUnit;
+
         this.verifiedKeys = verifiedKeys;
         this.billFingerprint = billFingerprint;
         this.carbonKg = carbonKg;
         this.carbonJson = carbonJson;
         this.estimated = estimated;
     }
+
 
     public void updateReward(String rewardState, int rewardPoints) {
         this.rewardState = rewardState;
