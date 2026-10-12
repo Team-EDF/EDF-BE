@@ -30,13 +30,20 @@ public class ReceiptQueryService {
     private final ConsumptionItemRepository consumptionItemRepository;
 
     public Page<ReceiptRecordResponse> getMyReceipts(Long userId, int page, int size) {
+        return getMyReceipts(userId, page, size, null);
+    }
+
+    public Page<ReceiptRecordResponse> getMyReceipts(Long userId, int page, int size, String month) {
+        java.time.YearMonth selected = com.edf.teamedf.common.util.CalendarMonth.parse(month);
         PageRequest pageable = PageRequest.of(
                 Math.max(page, 0),
                 Math.min(Math.max(size, 1), MAX_PAGE_SIZE),
                 Sort.by(Sort.Direction.DESC, "createdAt"));
 
-        Page<ConsumptionRecord> records = consumptionRecordRepository
-                .findByUser_UserIdAndOcrStatusIn(userId, VISIBLE_STATUSES, pageable);
+        Page<ConsumptionRecord> records = selected == null
+                ? consumptionRecordRepository.findByUser_UserIdAndOcrStatusIn(userId, VISIBLE_STATUSES, pageable)
+                : consumptionRecordRepository.findForMonth(userId, VISIBLE_STATUSES,
+                        selected.atDay(1).atStartOfDay(), selected.plusMonths(1).atDay(1).atStartOfDay(), pageable);
 
         List<Long> recordIds = records.getContent().stream().map(ConsumptionRecord::getRecordId).toList();
         Map<Long, List<String>> itemNamesByRecord = new LinkedHashMap<>();

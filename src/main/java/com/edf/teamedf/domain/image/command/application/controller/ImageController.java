@@ -27,9 +27,10 @@ public class ImageController {
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestPart("file") MultipartFile file,
             @RequestParam(required = false) ReferenceType referenceType,
-            @RequestParam(required = false) Long referenceId) {
+            @RequestParam(required = false) Long referenceId,
+            @RequestParam(required = false) String requestId) {
         return ResponseEntity.status(HttpStatus.CREATED)
-                .body(imageUploadService.upload(AuthUtils.requireUserId(principal), file, referenceType, referenceId));
+                .body(imageUploadService.upload(AuthUtils.requireUserId(principal), file, referenceType, referenceId, requestId));
     }
 
     @DeleteMapping("/{imageId}")

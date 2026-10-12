@@ -26,11 +26,14 @@ public class RecordConfirmService {
     private final ConsumptionRecordRepository consumptionRecordRepository;
     private final IntegratedStatRepository integratedStatRepository;
     private final CategoryStatRepository categoryStatRepository;
+    private final com.edf.teamedf.domain.user.command.infrastructure.UserRepository userRepository;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     // 이미지 저장을 AI(Python)가 담당하게 되면서 영수증은 더 이상 UploadedImage 행을 갖지 않는다.
     // consumption_records.record_id를 기준으로 직접 확인한다.
     public void confirmByRecordId(Long recordId, Long userId) {
+        userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
         ConsumptionRecord record = consumptionRecordRepository.findById(recordId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "소비 기록을 찾을 수 없습니다."));
 
@@ -38,6 +41,7 @@ public class RecordConfirmService {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "본인의 소비 기록만 확인할 수 있습니다.");
         }
 
+        if ("SUCCESS".equals(record.getOcrStatus())) return;
         if (!"WAITING_CONFIRM".equals(record.getOcrStatus())) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "확인 대기 상태(WAITING_CONFIRM)인 기록이 아닙니다.");
         }

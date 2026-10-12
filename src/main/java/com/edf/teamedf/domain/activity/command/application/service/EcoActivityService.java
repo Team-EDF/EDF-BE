@@ -278,6 +278,25 @@ public class EcoActivityService {
         User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
+        String sessionId = request.sessionId();
+        if (sessionId != null && !sessionId.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "올바르지 않은 이동 세션 ID입니다.");
+        }
+        if (sessionId != null) {
+            var previous = ecoActivityRepository.findByUser_UserIdAndTripSessionId(userId, sessionId);
+            if (previous.isPresent()) {
+                EcoActivity saved = previous.get();
+                if (!mode.equals(saved.getTransitMode())) {
+                    throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 저장한 이동의 수단을 바꿀 수 없습니다.");
+                }
+                float total = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
+                long points = toLong(ecoActivityRepository.sumPointsByUserId(userId));
+                int level = CharacterLevel.levelOf(total, points);
+                return TransitCertifyResponse.of(saved.getSavedCarbon(), saved.getPointsEarned(), total, points,
+                        level, level, "이미 저장된 이동 기록이에요.", saved.getTransitMode(), saved.getDistanceKm());
+            }
+        }
+
         // 앱이 보낸 거리·절감량·포인트는 믿지 않고, 시각이 있는 경로로 이동수단 주장을 검증한 뒤 서버가 다시 계산한다
         List<TransitTripAnalyzer.Point> routePoints = toAnalyzerPoints(request.route());
         TransitTripAnalyzer.Verdict verdict = TransitTripAnalyzer.evaluate(
@@ -326,6 +345,9 @@ public class EcoActivityService {
                 .savedCarbon(savedCarbon)
                 .pointsEarned(pointsEarned)
                 .detectionName("GPS 이동 추적 (" + modeLabel + ")")
+                .tripSessionId(sessionId)
+                .transitMode(mode)
+                .distanceKm(distanceKm)
                 .tripStartMs(routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).min().orElse(0L))
                 .tripEndMs(routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).max().orElse(0L))
                 .status(EcoActivity.Status.APPROVED)
@@ -462,6 +484,18 @@ public class EcoActivityService {
     // ------------------------------------------------------------------ 조회
 
     public Page<EcoActivityResponse> getMyActivities(Long userId, String rawCategory, Pageable pageable) {
+        return getMyActivities(userId, rawCategory, pageable, null);
+    }
+
+    public Page<EcoActivityResponse> getMyActivities(Long userId, String rawCategory, Pageable pageable, String month) {
+        java.time.YearMonth selected = com.edf.teamedf.common.util.CalendarMonth.parse(month);
+        if (selected != null) {
+            EcoCategory category = rawCategory == null || rawCategory.isBlank() || "ALL".equalsIgnoreCase(rawCategory)
+                    ? null : EcoCategory.from(rawCategory);
+            return ecoActivityRepository.findForMonth(userId, category,
+                    selected.atDay(1).atStartOfDay(), selected.plusMonths(1).atDay(1).atStartOfDay(), pageable)
+                    .map(EcoActivityResponse::from);
+        }
         if (rawCategory != null && !rawCategory.isBlank() && !"ALL".equalsIgnoreCase(rawCategory)) {
             EcoCategory category = EcoCategory.from(rawCategory);
             return ecoActivityRepository
@@ -474,10 +508,11 @@ public class EcoActivityService {
     }
 
     public EcoActivitySummaryResponse getMySummary(Long userId) {
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime monthStart = LocalDate.now().withDayOfMonth(1).atStartOfDay();
-        LocalDateTime weekStart = LocalDate.now().minusDays(6).atStartOfDay();
-        LocalDateTime todayStart = LocalDate.now().atStartOfDay();
+        LocalDate today = LocalDate.now(java.time.ZoneId.of("Asia/Seoul"));
+        LocalDateTime now = LocalDateTime.now(java.time.ZoneId.of("Asia/Seoul"));
+        LocalDateTime monthStart = today.withDayOfMonth(1).atStartOfDay();
+        LocalDateTime weekStart = today.minusDays(6).atStartOfDay();
+        LocalDateTime todayStart = today.atStartOfDay();
 
         long totalCount = ecoActivityRepository.countByUser_UserId(userId);
         long monthCount = ecoActivityRepository.countByUser_UserIdAndCreatedAtBetween(userId, monthStart, now);
@@ -492,9 +527,21 @@ public class EcoActivityService {
         List<EcoActivitySummaryResponse.CategoryBreakdown> categories = buildBreakdown(userId, totalCount);
         int streakDays = calculateStreak(userId);
 
+        LocalDateTime end = today.plusDays(1).atStartOfDay();
+        float monthSavedCarbon = toFloat(ecoActivityRepository.sumSavedCarbonInPeriod(userId, monthStart, end));
+        Object[] monthly = transitStats(userId, monthStart, end);
+        Object[] weekly = transitStats(userId, weekStart, end);
         return new EcoActivitySummaryResponse(
                 totalCount, monthCount, weekCount, todayCount,
-                totalSavedCarbon, totalPoints, level, streakDays, categories);
+                totalSavedCarbon, totalPoints, level, streakDays,
+                monthSavedCarbon, ((Number) monthly[0]).longValue(), ((Number) weekly[0]).longValue(),
+                ((Number) monthly[1]).floatValue(), categories);
+    }
+
+    private Object[] transitStats(Long userId, LocalDateTime start, LocalDateTime end) {
+        List<Object[]> rows = ecoActivityRepository.transitStats(userId, EcoCategory.TRANSIT,
+                "GPS 이동 추적 (대중교통)", start, end);
+        return rows.isEmpty() ? new Object[]{0L, 0d} : rows.get(0);
     }
 
     private List<EcoActivitySummaryResponse.CategoryBreakdown> buildBreakdown(Long userId, long totalCount) {

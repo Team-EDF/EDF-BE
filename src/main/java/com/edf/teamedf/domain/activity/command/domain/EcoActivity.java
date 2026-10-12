@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
  * 사용자의 친환경 활동 인증 기록.
  */
 @Entity
-@Table(name = "eco_activities", indexes = {
+@Table(name = "eco_activities", uniqueConstraints = @UniqueConstraint(name = "uk_transit_session", columnNames = {"user_id", "trip_session_id"}), indexes = {
         @Index(name = "idx_eco_activity_user_created", columnList = "user_id, created_at")
 })
 @Getter
@@ -52,6 +52,15 @@ public class EcoActivity {
     private String detectionName;
 
     /** GPS 이동 인증(TRANSIT)의 경로 첫/마지막 위치 시각 (epoch ms). 같은 이동을 두 번 인증하지 못하게 겹침 검사에 쓴다. */
+    @Column(name = "trip_session_id", length = 64)
+    private String tripSessionId;
+
+    @Column(name = "transit_mode", length = 10)
+    private String transitMode;
+
+    @Column(name = "distance_km")
+    private Float distanceKm;
+
     @Column(name = "trip_start_ms")
     private Long tripStartMs;
 

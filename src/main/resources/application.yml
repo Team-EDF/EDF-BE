@@ -142,8 +142,9 @@ file:
 app:
   admin:
     enabled: ${ADMIN_ENABLED:true}
-    email: ${ADMIN_EMAIL}
-    password: ${ADMIN_PASSWORD}
+    # 비어 있으면 관리자 계정을 만들지 않고 서버는 정상 기동한다 (AdminAccountInitializer)
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
     name: ${ADMIN_NAME:관리자}
 
 # 친환경 활동 인증 남용 방지 (사진 인증 / GPS 이동 인증)

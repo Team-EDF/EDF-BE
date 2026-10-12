@@ -46,9 +46,10 @@ public class EcoActivityController {
     public ResponseEntity<Page<EcoActivityResponse>> getMyActivities(
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(required = false) String category,
+            @RequestParam(required = false) String month,
             @PageableDefault(size = 20, sort = "createdAt", direction = Sort.Direction.DESC) Pageable pageable) {
         Long userId = AuthUtils.requireUserId(principal);
-        return ResponseEntity.ok(ecoActivityService.getMyActivities(userId, category, pageable));
+        return ResponseEntity.ok(ecoActivityService.getMyActivities(userId, category, pageable, month));
     }
 
     /** 내 활동 요약 (총 인증 수 / 절감량 / 포인트 / 레벨 / 연속일). */

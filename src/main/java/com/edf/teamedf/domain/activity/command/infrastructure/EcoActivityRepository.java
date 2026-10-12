@@ -23,6 +23,30 @@ public interface EcoActivityRepository extends JpaRepository<EcoActivity, Long> 
     List<EcoActivity> findAllByUser_UserIdAndCreatedAtAfterOrderByCreatedAtDesc(
             Long userId, LocalDateTime after);
 
+    @Query("""
+            select a from EcoActivity a where a.user.userId = :userId
+              and (:category is null or a.category = :category)
+              and a.createdAt >= :start and a.createdAt < :end
+            order by a.createdAt desc, a.activityId desc
+            """)
+    Page<EcoActivity> findForMonth(@Param("userId") Long userId,
+            @Param("category") EcoCategory category, @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end, Pageable pageable);
+
+    @Query("select coalesce(sum(a.savedCarbon), 0) from EcoActivity a where a.user.userId = :userId and a.createdAt >= :start and a.createdAt < :end")
+    Double sumSavedCarbonInPeriod(@Param("userId") Long userId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    @Query("""
+            select count(a), coalesce(sum(a.savedCarbon), 0) from EcoActivity a
+            where a.user.userId = :userId and a.category = :category
+              and a.detectionName = :detectionName and a.createdAt >= :start and a.createdAt < :end
+            """)
+    List<Object[]> transitStats(@Param("userId") Long userId, @Param("category") EcoCategory category,
+            @Param("detectionName") String detectionName, @Param("start") LocalDateTime start,
+            @Param("end") LocalDateTime end);
+
+    java.util.Optional<EcoActivity> findByUser_UserIdAndTripSessionId(Long userId, String tripSessionId);
+
     long countByUser_UserId(Long userId);
 
     long countByUser_UserIdAndCreatedAtBetween(Long userId, LocalDateTime from, LocalDateTime to);

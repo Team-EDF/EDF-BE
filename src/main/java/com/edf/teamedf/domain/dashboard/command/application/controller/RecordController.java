@@ -29,8 +29,9 @@ public class RecordController {
     public ResponseEntity<Page<ReceiptRecordResponse>> myReceipts(
             @AuthenticationPrincipal UserPrincipal principal,
             @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "50") int size) {
-        return ResponseEntity.ok(receiptQueryService.getMyReceipts(AuthUtils.requireUserId(principal), page, size));
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(required = false) String month) {
+        return ResponseEntity.ok(receiptQueryService.getMyReceipts(AuthUtils.requireUserId(principal), page, size, month));
     }
 
     // /images/upload(referenceType=CONSUMPTION_RECORD) 응답의 referenceId가 recordId다.

@@ -46,6 +46,11 @@ public class AdminAccountInitializer implements ApplicationRunner {
         if (!enabled) {
             return;
         }
+        // ADMIN_EMAIL / ADMIN_PASSWORD 가 없으면(로컬 .env 등) 예시 계정을 만들지 않고 건너뛴다.
+        if (email == null || email.isBlank() || password == null || password.isBlank()) {
+            log.warn("ADMIN_EMAIL 또는 ADMIN_PASSWORD 가 설정되지 않아 관리자 계정 생성을 건너뜁니다.");
+            return;
+        }
         var existing = userRepository.findByEmail(email);
         if (existing.isPresent()) {
             if (existing.get().getRole() != User.Role.ADMIN) {

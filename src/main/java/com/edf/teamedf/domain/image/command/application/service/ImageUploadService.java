@@ -53,12 +53,32 @@ public class ImageUploadService {
     @Transactional
     public ImageUploadResponse upload(Long userId, MultipartFile file,
                                       ReferenceType referenceType, Long referenceId) {
-        User user = getUser(userId);
+        return upload(userId, file, referenceType, referenceId, null);
+    }
+
+    @Transactional
+    public ImageUploadResponse upload(Long userId, MultipartFile file,
+                                      ReferenceType referenceType, Long referenceId, String requestId) {
+        if (requestId != null && !requestId.matches("[A-Za-z0-9_-]{1,64}")) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "올바르지 않은 업로드 요청 ID입니다.");
+        }
+        if (file == null || file.isEmpty()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "사진을 선택해 주세요.");
+        if (file.getSize() > 10 * 1024 * 1024) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "사진은 10MB 이하로 올려 주세요.");
+        User user = referenceType == ReferenceType.CONSUMPTION_RECORD
+                ? userRepository.findByIdForUpdate(userId).orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."))
+                : getUser(userId);
 
         // 영수증은 자바가 파일을 따로 저장하지 않는다. 이미지 저장/보관은 AI(Python)가 담당하고,
         // 자바는 AI 호출 오케스트레이션 + consumption_records 상태 관리만 한다.
         if (referenceType == ReferenceType.CONSUMPTION_RECORD) {
-            return uploadReceipt(user, file);
+            if (requestId != null) {
+                var existing = consumptionRecordRepository.findByUser_UserIdAndUploadRequestId(userId, requestId);
+                if (existing.isPresent()) {
+                    var record = existing.get();
+                    return ImageUploadResponse.ofReceipt(file, record.getImageUrl(), record.getRecordId(), record.getRawText());
+                }
+            }
+            return uploadReceipt(user, file, requestId);
         }
 
         // 활동 인증 사진은 인증에 쓰일 때 서버가 referenceId(activityId)를 채운다. 클라이언트 값은 받지 않는다.
@@ -87,21 +107,21 @@ public class ImageUploadService {
         return ImageUploadResponse.from(savedImage);
     }
 
-    private ImageUploadResponse uploadReceipt(User user, MultipartFile file) {
+    private ImageUploadResponse uploadReceipt(User user, MultipartFile file, String requestId) {
         Map<String, Object> response;
 
         try {
             response = callAiOcrClassify(user.getUserId(), file);
+        } catch (org.springframework.web.client.HttpClientErrorException e) {
+            int status = e.getStatusCode().value();
+            if (status == 413) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "사진은 10MB 이하로 올려 주세요.");
+            if (status == 400 || status == 422) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "영수증을 읽지 못했어요. 선명한 사진으로 다시 시도해 주세요.");
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "영수증 분석 서버에 연결하지 못했어요.");
         } catch (Exception e) {
             log.error("OCR extraction failed", e);
-            ConsumptionRecord record = saveFailedReceiptRecord(user, e.getMessage());
-            return ImageUploadResponse.ofReceipt(file, null, record.getRecordId(), null);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "영수증 분석이 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
         }
-
-        if (response == null) {
-            ConsumptionRecord record = saveFailedReceiptRecord(user, "AI로부터 응답을 받지 못했습니다.");
-            return ImageUploadResponse.ofReceipt(file, null, record.getRecordId(), null);
-        }
+        if (response == null) throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "영수증 분석 응답이 없습니다.");
 
         String ocrText = response.get("ocr_raw_text") != null ? (String) response.get("ocr_raw_text") : null;
         String imageUrl = response.get("image_url") != null ? (String) response.get("image_url") : null;
@@ -118,6 +138,7 @@ public class ImageUploadService {
         ConsumptionRecord record = buildRecordFromAiResponse(
                 user, imageUrl, response, ocrText, ocrDataJson, "WAITING_CONFIRM");
 
+        record.setUploadRequestId(requestId);
         record.setMerchantName(asString(response.get("merchant_name"), 255));
         record.setPaymentLocation(asString(response.get("payment_location"), 500));
         record = consumptionRecordRepository.save(record);
@@ -198,7 +219,10 @@ public class ImageUploadService {
         body.add("user_id", userId);
 
         HttpEntity<MultiValueMap<String, Object>> requestEntity = new HttpEntity<>(body, headers);
-        RestTemplate restTemplate = new RestTemplate();
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(3000);
+        factory.setReadTimeout(75000);
+        RestTemplate restTemplate = new RestTemplate(factory);
         return restTemplate.postForObject(aiServiceUrl + "/api/ocr/classify", requestEntity, Map.class);
     }
 

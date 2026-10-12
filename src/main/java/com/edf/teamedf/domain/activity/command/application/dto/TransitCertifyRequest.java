@@ -18,8 +18,14 @@ public record TransitCertifyRequest(
         Integer durationSec,
         Float savedCarbon,
         Integer pointsEarned,
-        List<RoutePoint> route
+        List<RoutePoint> route,
+        String sessionId
 ) {
+    public TransitCertifyRequest(String mode, Float distanceKm, Integer durationSec, Float savedCarbon,
+            Integer pointsEarned, List<RoutePoint> route) {
+        this(mode, distanceKm, durationSec, savedCarbon, pointsEarned, route, null);
+    }
+
     public record RoutePoint(
             Double latitude,
             Double longitude,

@@ -54,8 +54,6 @@ public class HouseholdService {
     private static final Logger log = LoggerFactory.getLogger(HouseholdService.class);
 
     private static final ZoneId KST = ZoneId.of("Asia/Seoul");
-    /** 이번 달부터 이 개월 수 전까지의 고지서만 받는다 (작년 같은 달을 올릴 수 있는 범위). */
-    private static final int MAX_MONTHS_BACK = 13;
     /** 고지서 읽기 결과를 저장에 쓸 수 있는 시간. */
     private static final long READ_TTL_HOURS = 2;
     /** 읽은 값과 입력값이 같은지 비교하는 허용 오차 (부동소수점 잡음만 허용; 지역난방은 소수 넷째 자리까지 저장). */
@@ -336,7 +334,7 @@ public class HouseholdService {
                 bill.getHeatUsage(), bill.getHeatUnit(), bill.getHeatKrw(),
                 bill.getCarbonKg(), Boolean.TRUE.equals(bill.getEstimated()), items, source, verifiedKeys, comparisons,
                 bill.getRewardPoints() == null ? 0 : bill.getRewardPoints(), pointsAwarded, message,
-                totalPoints, levelBefore, levelAfter, levelAfter > levelBefore);
+                totalPoints, levelBefore, levelAfter, levelAfter > levelBefore, bill.getCreatedAt(), bill.getUpdatedAt());
     }
 
     /** 저장 결과 안내: 지급된 포인트, 포인트를 못 받은 이유(인증·작년 같은 달 필요) 등을 알려 준다. */
@@ -375,16 +373,11 @@ public class HouseholdService {
 
         YearMonth current = YearMonth.from(LocalDate.now(KST));
 
-        // 로컬 테스트에서만 과거 관리비 저장 허용
-        boolean allowOldBills =
-                "true".equalsIgnoreCase(System.getenv("HOUSEHOLD_ALLOW_OLD_BILLS"))
-                        && "local".equalsIgnoreCase(System.getenv("SPRING_PROFILES_ACTIVE"));
-
-        if (month.isAfter(current)
-                || (!allowOldBills && month.isBefore(current.minusMonths(MAX_MONTHS_BACK)))) {
+        // 과거 달은 기간 제한 없이 기록할 수 있고, 아직 오지 않은 달만 막는다.
+        if (month.isAfter(current)) {
             throw new ResponseStatusException(
                     HttpStatus.BAD_REQUEST,
-                    "이번 달부터 최근 " + MAX_MONTHS_BACK + "개월 안의 관리비만 기록할 수 있어요.");
+                    "이번 달까지의 관리비만 기록할 수 있어요.");
         }
 
         return month;

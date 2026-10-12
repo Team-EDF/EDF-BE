@@ -16,6 +16,10 @@ public record EcoActivitySummaryResponse(
         long totalPoints,
         int level,
         int streakDays,
+        float monthSavedCarbon,
+        long monthTransitCount,
+        long weekTransitCount,
+        float monthTransitSavedCarbon,
         List<CategoryBreakdown> categories
 ) {
 

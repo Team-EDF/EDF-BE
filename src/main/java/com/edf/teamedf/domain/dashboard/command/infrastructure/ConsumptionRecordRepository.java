@@ -19,13 +19,25 @@ public interface ConsumptionRecordRepository extends JpaRepository<ConsumptionRe
     @Query("SELECT r.recordDate, COALESCE(SUM(r.totalCarbonKg), 0.0) " +
            "FROM ConsumptionRecord r " +
            "WHERE r.user.userId = :userId " +
-           "  AND r.recordDate BETWEEN :from AND :to " +
+           "  AND r.ocrStatus = 'SUCCESS' AND r.recordDate BETWEEN :from AND :to " +
            "GROUP BY r.recordDate " +
            "ORDER BY r.recordDate")
     List<Object[]> findDailyCarbonByUserIdAndDateBetween(
             @Param("userId") Long userId,
             @Param("from") LocalDate from,
             @Param("to") LocalDate to);
+
+    @Query("""
+            select r from ConsumptionRecord r where r.user.userId = :userId
+              and r.ocrStatus in :statuses and r.createdAt >= :start and r.createdAt < :end
+            order by r.createdAt desc, r.recordId desc
+            """)
+    Page<ConsumptionRecord> findForMonth(@Param("userId") Long userId,
+            @Param("statuses") Collection<String> statuses,
+            @Param("start") java.time.LocalDateTime start, @Param("end") java.time.LocalDateTime end,
+            Pageable pageable);
+
+    java.util.Optional<ConsumptionRecord> findByUser_UserIdAndUploadRequestId(Long userId, String uploadRequestId);
 
     List<ConsumptionRecord> findByImageUrl(String imageUrl);
 

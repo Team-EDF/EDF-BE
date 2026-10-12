@@ -10,7 +10,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "consumption_records")
+@Table(name = "consumption_records", uniqueConstraints = @UniqueConstraint(name = "uk_receipt_upload_request", columnNames = {"user_id", "upload_request_id"}))
 @Getter
 @Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -42,6 +42,9 @@ public class ConsumptionRecord {
 
     @Column(name = "image_url", length = 500)
     private String imageUrl;
+
+    @Column(name = "upload_request_id", length = 64)
+    private String uploadRequestId;
 
     // pending / success / failed / manually_completed (card_statement는 null)
     @Column(name = "ocr_status", length = 30)

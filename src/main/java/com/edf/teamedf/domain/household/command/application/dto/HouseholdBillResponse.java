@@ -36,7 +36,9 @@ public record HouseholdBillResponse(
         long totalPoints,
         int previousLevel,
         int level,
-        boolean leveledUp
+        boolean leveledUp,
+        java.time.LocalDateTime createdAt,
+        java.time.LocalDateTime updatedAt
 ) {
 
     /** 항목별 탄소 내역. basis: usage(사용량 기준) | spend(금액으로 추정) | none */
