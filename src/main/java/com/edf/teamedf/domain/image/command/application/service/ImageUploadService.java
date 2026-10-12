@@ -61,6 +61,12 @@ public class ImageUploadService {
             return uploadReceipt(user, file);
         }
 
+        // 활동 인증 사진은 인증에 쓰일 때 서버가 referenceId(activityId)를 채운다. 클라이언트 값은 받지 않는다.
+        if (referenceType == ReferenceType.ECO_ACTIVITY) {
+            referenceId = null;
+        }
+        String contentHash = sha256Hex(file);
+
         StoredFile stored = fileStorageService.store(file);
 
         UploadedImage image = UploadedImage.builder()
@@ -74,6 +80,7 @@ public class ImageUploadService {
                 .storageType(StorageType.LOCAL)  // S3 전환 시 StorageType.S3 로 변경
                 .referenceType(referenceType)
                 .referenceId(referenceId)
+                .contentHash(contentHash)
                 .build();
 
         UploadedImage savedImage = uploadedImageRepository.save(image);
@@ -258,6 +265,16 @@ public class ImageUploadService {
                 .stream()
                 .map(ImageUploadResponse::from)
                 .toList();
+    }
+
+    private static String sha256Hex(MultipartFile file) {
+        try {
+            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(file.getBytes());
+            return java.util.HexFormat.of().formatHex(digest);
+        } catch (java.io.IOException | java.security.NoSuchAlgorithmException e) {
+            log.warn("업로드 이미지 해시 계산 실패: {}", e.toString());
+            return null;
+        }
     }
 
     private User getUser(Long userId) {

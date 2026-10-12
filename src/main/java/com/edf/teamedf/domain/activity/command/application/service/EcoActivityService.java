@@ -12,12 +12,16 @@ import com.edf.teamedf.domain.activity.command.domain.EcoCategory;
 import com.edf.teamedf.domain.activity.command.domain.TransitTripAnalyzer;
 import com.edf.teamedf.domain.activity.command.infrastructure.EcoActivityRepository;
 import com.edf.teamedf.domain.dashboard.command.domain.UserRanking;
+import com.edf.teamedf.domain.image.command.domain.ReferenceType;
+import com.edf.teamedf.domain.image.command.domain.UploadedImage;
+import com.edf.teamedf.domain.image.command.infrastructure.UploadedImageRepository;
 import com.edf.teamedf.domain.dashboard.command.infrastructure.UserRankingRepository;
 import com.edf.teamedf.domain.notification.command.application.service.NotificationService;
 import com.edf.teamedf.domain.notification.command.domain.NotificationType;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -28,6 +32,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
+import java.time.ZoneId;
+import java.util.EnumSet;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -55,6 +61,30 @@ public class EcoActivityService {
     private final UserRepository userRepository;
     private final UserRankingRepository userRankingRepository;
     private final NotificationService notificationService;
+    private final UploadedImageRepository uploadedImageRepository;
+
+    private static final ZoneId KST = ZoneId.of("Asia/Seoul");
+
+    /** 사진으로 직접 인증할 수 있는 카테고리. 대중교통은 GPS 이동 인증(/certify-transit)으로만 받는다. */
+    private static final Set<EcoCategory> PHOTO_CATEGORIES = EnumSet.of(
+            EcoCategory.TUMBLER, EcoCategory.RECYCLING, EcoCategory.ENERGY,
+            EcoCategory.SHOPPING_BAG, EcoCategory.VEGETARIAN);
+
+    /** 하루(KST) 같은 카테고리 사진 인증 횟수 상한. */
+    @Value("${activity.certify.daily-limit-per-category:2}")
+    private int dailyLimitPerCategory;
+
+    /** 하루(KST) 사진 인증 전체 횟수 상한. */
+    @Value("${activity.certify.daily-limit-total:6}")
+    private int dailyLimitTotal;
+
+    /** 인증 사진은 업로드한 지 이 시간 안에만 쓸 수 있다. */
+    @Value("${activity.certify.image-max-age-hours:24}")
+    private int imageMaxAgeHours;
+
+    /** 하루(KST) GPS 이동 인증 횟수 상한. */
+    @Value("${activity.transit.daily-limit:6}")
+    private int transitDailyLimit;
 
     // ------------------------------------------------------------------ 챌린지 보상
 
@@ -126,29 +156,60 @@ public class EcoActivityService {
 
     // ------------------------------------------------------------------ 인증
 
+    /**
+     * 사진 인증. 남용을 막기 위해 다음을 확인한다.
+     * <ul>
+     *   <li>사진 필수: /images/upload(referenceType=ECO_ACTIVITY) 로 본인이 최근 올린, 아직 인증에 안 쓴 사진</li>
+     *   <li>같은 내용의 사진(SHA-256)은 한 번만 인증에 쓸 수 있다</li>
+     *   <li>하루(KST) 카테고리별 {@code dailyLimitPerCategory}회, 전체 {@code dailyLimitTotal}회</li>
+     *   <li>대중교통은 사진이 아니라 GPS 이동 인증으로만 받는다</li>
+     * </ul>
+     * 같은 사용자의 동시 요청은 사용자 행 잠금으로 하나씩 처리해 횟수 검사를 우회하지 못하게 한다.
+     */
     @Transactional
     public CertifyResponse certify(Long userId, CertifyRequest request) {
         if (request == null || request.category() == null || request.category().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "카테고리는 필수입니다.");
         }
 
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
-
         EcoCategory category = EcoCategory.from(request.category());
         if (category.isSystemOnly()) {
             // 챌린지·관리비 절감 보상 전용 카테고리라 직접 인증으로는 쓸 수 없다
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 카테고리입니다: " + request.category());
         }
+        if (category == EcoCategory.TRANSIT) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "대중교통 이용은 이동 기록(GPS)으로 인증해 주세요.");
+        }
+        if (request.imageId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "인증 사진이 필요해요. 앱을 최신 버전으로 업데이트한 뒤 다시 시도해 주세요.");
+        }
+
+        User user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
+
+        LocalDateTime todayStart = startOfTodayKst();
+        long categoryCount = ecoActivityRepository
+                .countByUser_UserIdAndCategoryAndCreatedAtGreaterThanEqual(userId, category, todayStart);
+        if (categoryCount >= dailyLimitPerCategory) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, String.format(
+                    "'%s' 인증은 하루 %d번까지 할 수 있어요. 내일 다시 인증해 주세요.",
+                    category.getDisplayName(), dailyLimitPerCategory));
+        }
+        long totalCount = ecoActivityRepository
+                .countByUser_UserIdAndCategoryInAndCreatedAtGreaterThanEqual(userId, PHOTO_CATEGORIES, todayStart);
+        if (totalCount >= dailyLimitTotal) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, String.format(
+                    "사진 인증은 하루 %d번까지 할 수 있어요. 내일 다시 인증해 주세요.", dailyLimitTotal));
+        }
+
+        UploadedImage image = requireUsableImage(userId, request.imageId());
 
         String comment = request.comment();
         if (comment != null && comment.length() > 500) {
             comment = comment.substring(0, 500);
         }
-        String imageUrl = request.imageUri();
-        if (imageUrl != null && imageUrl.length() > 1000) {
-            imageUrl = imageUrl.substring(0, 1000);
-        }
+        String imageUrl = image.getFileUrl();
 
         EcoActivity activity = EcoActivity.builder()
                 .user(user)
@@ -162,6 +223,8 @@ public class EcoActivityService {
                 .build();
 
         ecoActivityRepository.save(activity);
+        // 이 사진은 이제 이 인증에 쓰였으므로 다른 인증에 다시 쓸 수 없다.
+        image.attachTo(ReferenceType.ECO_ACTIVITY, activity.getActivityId());
 
         // 이번 달 탄소절감 랭킹에 누적 반영
         applyToRanking(user, category.getSavedCarbon(), category.getPoints());
@@ -212,12 +275,32 @@ public class EcoActivityService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "지원하지 않는 이동 수단입니다: " + mode);
         }
 
-        User user = userRepository.findById(userId)
+        User user = userRepository.findByIdForUpdate(userId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
         // 앱이 보낸 거리·절감량·포인트는 믿지 않고, 시각이 있는 경로로 이동수단 주장을 검증한 뒤 서버가 다시 계산한다
+        List<TransitTripAnalyzer.Point> routePoints = toAnalyzerPoints(request.route());
         TransitTripAnalyzer.Verdict verdict = TransitTripAnalyzer.evaluate(
-                mode, toAnalyzerPoints(request.route()), System.currentTimeMillis());
+                mode, routePoints, System.currentTimeMillis());
+        if (verdict.ok()) {
+            long todayTrips = ecoActivityRepository.countByUser_UserIdAndCategoryAndCreatedAtGreaterThanEqual(
+                    userId, EcoCategory.TRANSIT, startOfTodayKst());
+            if (todayTrips >= transitDailyLimit) {
+                verdict = new TransitTripAnalyzer.Verdict(false, String.format(
+                        "이동 인증은 하루 %d번까지 할 수 있어요. 내일 다시 기록해 주세요.", transitDailyLimit),
+                        verdict.detectedMode(), 0);
+            }
+        }
+        if (verdict.ok()) {
+            // 같은 경로 재전송이나 시간이 겹치는 이동을 두 번 인증하지 못하게 한다.
+            long tripStart = routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).min().orElse(0L);
+            long tripEnd = routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).max().orElse(0L);
+            if (ecoActivityRepository.existsOverlappingTrip(userId, EcoCategory.TRANSIT, tripStart, tripEnd)) {
+                verdict = new TransitTripAnalyzer.Verdict(false,
+                        "이미 인증한 이동과 시간이 겹쳐요. 같은 이동은 한 번만 인증할 수 있어요.",
+                        verdict.detectedMode(), 0);
+            }
+        }
         if (!verdict.ok()) {
             float totalCarbon = toFloat(ecoActivityRepository.sumSavedCarbonByUserId(userId));
             long totalPoints = toLong(ecoActivityRepository.sumPointsByUserId(userId));
@@ -243,6 +326,8 @@ public class EcoActivityService {
                 .savedCarbon(savedCarbon)
                 .pointsEarned(pointsEarned)
                 .detectionName("GPS 이동 추적 (" + modeLabel + ")")
+                .tripStartMs(routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).min().orElse(0L))
+                .tripEndMs(routePoints.stream().mapToLong(TransitTripAnalyzer.Point::timestamp).max().orElse(0L))
                 .status(EcoActivity.Status.APPROVED)
                 .build();
 
@@ -494,7 +579,54 @@ public class EcoActivityService {
         if (activity.getUser() == null || !activity.getUser().getUserId().equals(userId)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "본인의 인증 기록만 삭제할 수 있습니다.");
         }
+        // 삭제한 만큼 그 달 랭킹 점수도 되돌린다. (되돌리지 않으면 삭제 → 재인증으로 랭킹만 계속 올라간다)
+        if (activity.getCreatedAt() != null) {
+            LocalDate periodStart = activity.getCreatedAt().toLocalDate().withDayOfMonth(1);
+            userRankingRepository
+                    .findByUser_UserIdAndRankingTypeAndRankingPeriodAndPeriodStart(
+                            userId, RANKING_TYPE_CARBON, PERIOD_MONTHLY, periodStart)
+                    .ifPresent(ranking -> {
+                        ranking.deduct(
+                                activity.getSavedCarbon() == null ? 0f : activity.getSavedCarbon(),
+                                activity.getPointsEarned() == null ? 0f : activity.getPointsEarned());
+                        long better = userRankingRepository.countBetterScores(
+                                RANKING_TYPE_CARBON, PERIOD_MONTHLY, periodStart, ranking.getScore());
+                        ranking.updateRankPosition((int) better + 1);
+                    });
+        }
         ecoActivityRepository.delete(activity);
+    }
+
+    /** 활동 인증에 쓸 수 있는 사진인지 확인한다. */
+    private UploadedImage requireUsableImage(Long userId, Long imageId) {
+        UploadedImage image = uploadedImageRepository.findByImageIdAndUser_UserId(imageId, userId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "인증 사진을 찾을 수 없어요. 사진을 다시 올려 주세요."));
+        if (image.getReferenceType() != ReferenceType.ECO_ACTIVITY) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "활동 인증용으로 올린 사진이 아니에요.");
+        }
+        if (image.getReferenceId() != null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 인증에 사용한 사진이에요. 새 사진을 찍어 주세요.");
+        }
+        if (image.getCreatedAt() != null
+                && image.getCreatedAt().isBefore(LocalDateTime.now().minusHours(imageMaxAgeHours))) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "오래전에 올린 사진은 쓸 수 없어요. 새 사진을 올려 주세요.");
+        }
+        if (image.getContentHash() != null
+                && uploadedImageRepository.existsByContentHashAndReferenceTypeAndReferenceIdIsNotNull(
+                        image.getContentHash(), ReferenceType.ECO_ACTIVITY)) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "이미 인증에 사용된 사진이에요. 새 사진을 찍어 주세요.");
+        }
+        return image;
+    }
+
+    /**
+     * 오늘(KST) 0시를 서버 기본 시간대의 LocalDateTime 으로 돌려준다.
+     * createdAt(@CreationTimestamp)은 서버 기본 시간대로 저장되므로, 서버가 UTC 여도 KST 하루 기준으로 센다.
+     */
+    private static LocalDateTime startOfTodayKst() {
+        return LocalDate.now(KST).atStartOfDay(KST)
+                .withZoneSameInstant(ZoneId.systemDefault())
+                .toLocalDateTime();
     }
 
     // ------------------------------------------------------------------ util

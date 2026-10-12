@@ -19,4 +19,7 @@ public interface UploadedImageRepository extends JpaRepository<UploadedImage, Lo
 
     // 사용자 소유 이미지 단건 조회 (삭제 권한 확인용)
     Optional<UploadedImage> findByImageIdAndUser_UserId(Long imageId, Long userId);
+
+    // 같은 내용의 사진이 이미 활동 인증에 쓰였는지 (사용자 구분 없이 확인한다)
+    boolean existsByContentHashAndReferenceTypeAndReferenceIdIsNotNull(String contentHash, ReferenceType referenceType);
 }

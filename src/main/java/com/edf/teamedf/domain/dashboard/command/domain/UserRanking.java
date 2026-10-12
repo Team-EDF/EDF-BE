@@ -68,6 +68,12 @@ public class UserRanking {
         }
     }
 
+    /** 인증 기록이 삭제됐을 때 누적값을 되돌린다 (0 아래로는 내려가지 않는다). */
+    public void deduct(float carbon, float score) {
+        this.totalSaving = Math.max(0f, (this.totalSaving == null ? 0f : this.totalSaving) - carbon);
+        this.score = Math.max(0f, (this.score == null ? 0f : this.score) - score);
+    }
+
     /** 재계산된 순위를 반영한다. */
     public void updateRankPosition(int rankPosition) {
         this.rankPosition = rankPosition;

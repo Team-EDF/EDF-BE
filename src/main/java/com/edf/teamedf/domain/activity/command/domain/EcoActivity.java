@@ -51,6 +51,13 @@ public class EcoActivity {
     @Column(name = "detection_name", length = 100)
     private String detectionName;
 
+    /** GPS 이동 인증(TRANSIT)의 경로 첫/마지막 위치 시각 (epoch ms). 같은 이동을 두 번 인증하지 못하게 겹침 검사에 쓴다. */
+    @Column(name = "trip_start_ms")
+    private Long tripStartMs;
+
+    @Column(name = "trip_end_ms")
+    private Long tripEndMs;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "status", length = 20, nullable = false)
     @Builder.Default

@@ -1,54 +1,53 @@
 package com.edf.teamedf.domain.user.command.application.service;
 
+import com.edf.teamedf.common.security.auth.RefreshTokenStore;
 import com.edf.teamedf.domain.user.command.domain.User;
 import com.edf.teamedf.domain.user.command.infrastructure.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.redis.core.RedisTemplate;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
+/**
+ * 비밀번호 재설정. 전화번호 인증은 쓰지 않으므로 <b>이메일 인증</b>만으로 본인을 확인한다.
+ *
+ * <ol>
+ *   <li>POST /auth/email/send → /auth/email/verify 로 emailVerificationToken 을 받는다.</li>
+ *   <li>POST /auth/reset-password/verify { emailVerificationToken } → resetToken (10분)</li>
+ *   <li>POST /auth/reset-password { resetToken, newPassword, newPasswordConfirm }</li>
+ * </ol>
+ */
 @Service
 @RequiredArgsConstructor
 public class AccountService {
 
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
-    private final PhoneVerificationService phoneVerificationService;
     private final EmailVerificationService emailVerificationService;
     private final RedisTemplate<String, String> redisTemplate;
+    private final RefreshTokenStore refreshTokenStore;
 
     private static final long RESET_TTL_SECONDS = 600;
     private static final String RESET_PREFIX = "reset:password:";
 
-    // ── 이메일 찾기 ──────────────────────────────────────────
-    public String findEmail(String phoneVerificationToken) {
-        String phone = phoneVerificationService.consumeVerifiedPhone(phoneVerificationToken);
-
-        User user = userRepository.findByPhone(phone)
-                .orElseThrow(() -> new IllegalArgumentException("해당 전화번호로 가입된 계정이 없습니다."));
-
-        return maskEmail(user.getEmail());
-    }
-
-    // ── 비밀번호 재설정 1단계: 이메일 + 전화번호 인증 ─────────
-    public String verifyForPasswordReset(String emailVerificationToken, String phoneVerificationToken) {
+    // ── 비밀번호 재설정 1단계: 이메일 인증 확인 ─────────────────
+    public String verifyForPasswordReset(String emailVerificationToken) {
         String email = emailVerificationService.consumeVerifiedEmail(emailVerificationToken);
-        String phone = phoneVerificationService.consumeVerifiedPhone(phoneVerificationToken);
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("해당 이메일로 가입된 계정이 없습니다."));
-
-        if (!phone.equals(user.getPhone())) {
-            throw new IllegalArgumentException("이메일과 전화번호가 일치하는 계정이 없습니다.");
+        List<User> users = userRepository.findAllByEmailIgnoreCase(email);
+        if (users.size() != 1 || users.get(0).isWithdrawn()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "해당 이메일로 가입된 계정이 없습니다.");
         }
 
         String resetToken = UUID.randomUUID().toString();
-        redisTemplate.opsForValue().set(RESET_PREFIX + resetToken, email, RESET_TTL_SECONDS, TimeUnit.SECONDS);
-
+        redisTemplate.opsForValue().set(RESET_PREFIX + resetToken, users.get(0).getUuid(), RESET_TTL_SECONDS, TimeUnit.SECONDS);
         return resetToken;
     }
 
@@ -56,27 +55,20 @@ public class AccountService {
     @Transactional
     public void resetPassword(String resetToken, String newPassword, String newPasswordConfirm) {
         if (!newPassword.equals(newPasswordConfirm)) {
-            throw new IllegalArgumentException("비밀번호가 일치하지 않습니다.");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "비밀번호가 일치하지 않습니다.");
         }
 
-        String email = redisTemplate.opsForValue().get(RESET_PREFIX + resetToken);
-        if (email == null) {
-            throw new IllegalArgumentException("비밀번호 재설정 세션이 만료되었습니다. 다시 인증해주세요.");
+        String uuid = redisTemplate.opsForValue().get(RESET_PREFIX + resetToken);
+        if (uuid == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "비밀번호 재설정 세션이 만료되었습니다. 다시 인증해주세요.");
         }
 
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("사용자를 찾을 수 없습니다."));
+        User user = userRepository.findByUuid(uuid)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다."));
 
         user.updatePassword(passwordEncoder.encode(newPassword));
         redisTemplate.delete(RESET_PREFIX + resetToken);
-    }
-
-    // ── 이메일 마스킹: test@example.com → te**@example.com ──
-    private String maskEmail(String email) {
-        int atIndex = email.indexOf('@');
-        if (atIndex <= 2) return email;
-        String local = email.substring(0, atIndex);
-        String domain = email.substring(atIndex);
-        return local.substring(0, 2) + "*".repeat(local.length() - 2) + domain;
+        // 비밀번호가 바뀌었으니 다른 기기의 로그인(리프레시 토큰)은 끊는다.
+        refreshTokenStore.delete(uuid);
     }
 }

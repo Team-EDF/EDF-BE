@@ -3,6 +3,7 @@ package com.edf.teamedf.domain.user.command.application.service;
 import com.edf.teamedf.common.security.auth.RefreshTokenStore;
 import com.edf.teamedf.common.security.auth.UserPrincipal;
 import com.edf.teamedf.common.security.jwt.JwtTokenProvider;
+import com.edf.teamedf.common.security.ratelimit.RateLimiter;
 import com.edf.teamedf.domain.user.command.application.dto.auth.LoginRequest;
 import com.edf.teamedf.domain.user.command.application.dto.auth.SignUpRequest;
 import com.edf.teamedf.domain.user.command.domain.User;
@@ -14,11 +15,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseCookie;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Map;
 
 @Slf4j
@@ -31,9 +35,15 @@ public class AuthService {
     private final JwtTokenProvider jwtTokenProvider;
     private final RefreshTokenStore tokenStore;
     private final AuthenticationManager authenticationManager;
-    private final PhoneVerificationService phoneVerificationService;
     private final AddressValidatorService addressValidatorService;
     private final EmailVerificationService emailVerificationService;
+    private final RateLimiter rateLimiter;
+
+    /** 로그인 실패 제한: 같은 이메일 10회 / 같은 IP 50회 (15분). 성공하면 이메일 카운트는 초기화한다. */
+    private static final int LOGIN_FAIL_LIMIT_PER_EMAIL = 10;
+    private static final int LOGIN_FAIL_LIMIT_PER_IP = 50;
+    private static final Duration LOGIN_FAIL_WINDOW = Duration.ofMinutes(15);
+    private static final String LOGIN_LOCKED_MESSAGE = "로그인 시도가 너무 많습니다. 15분 후 다시 시도해 주세요.";
 
     @Transactional
     public void signUp(SignUpRequest request) {
@@ -64,9 +74,6 @@ public class AuthService {
             validatedAddress = request.address();
         }
 
-        // 휴대폰 인증은 선택이다. 앱 가입 흐름에 SMS 인증 단계가 없으므로 토큰이 없으면 번호 없이 가입한다.
-        String phone = phoneVerificationService.consumeVerifiedPhoneOrNull(request.phoneVerificationToken());
-
         // 이메일 인증 토큰은 1회용이므로, 실패할 수 있는 다른 검증을 모두 끝낸 뒤 마지막에 소비한다.
         String verifiedEmail = emailVerificationService.consumeVerifiedEmail(request.emailVerificationToken());
         if (!verifiedEmail.equalsIgnoreCase(request.email().trim())) {
@@ -80,7 +87,6 @@ public class AuthService {
                 .nickname(request.nickname())
                 .birthDate(request.birthDate())
                 .gender(request.gender())
-                .phone(phone)
                 .address(validatedAddress)
                 .addressDetail(request.addressDetail())
                 .zipCode(request.zipCode())
@@ -100,9 +106,22 @@ public class AuthService {
         return !userRepository.existsByNickname(nickname);
     }
 
-    public TokenPair login(LoginRequest request) {
-        var authentication = authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(request.email(), request.password()));
+    public TokenPair login(LoginRequest request, String clientIp) {
+        String emailKey = "login-fail:email:" + (request.email() == null ? "" : request.email().trim().toLowerCase(Locale.ROOT));
+        String ipKey = "login-fail:ip:" + clientIp;
+        rateLimiter.check(emailKey, LOGIN_FAIL_LIMIT_PER_EMAIL, LOGIN_LOCKED_MESSAGE);
+        rateLimiter.check(ipKey, LOGIN_FAIL_LIMIT_PER_IP, LOGIN_LOCKED_MESSAGE);
+
+        org.springframework.security.core.Authentication authentication;
+        try {
+            authentication = authenticationManager.authenticate(
+                    new UsernamePasswordAuthenticationToken(request.email(), request.password()));
+        } catch (AuthenticationException e) {
+            rateLimiter.increment(emailKey, LOGIN_FAIL_WINDOW);
+            rateLimiter.increment(ipKey, LOGIN_FAIL_WINDOW);
+            throw e;
+        }
+        rateLimiter.reset(emailKey);
 
         UserPrincipal principal = (UserPrincipal) authentication.getPrincipal();
         String uuid = principal.uuid().toString();

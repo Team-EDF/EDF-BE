@@ -107,6 +107,11 @@ jwt:
 google:
   api:
     key: ${GOOGLE_API_KEY}
+  oauth:
+    # 앱 Google 로그인 ID 토큰의 aud(발급 대상) 허용 목록. 쉼표로 여러 개 가능.
+    # Android 앱은 GoogleSignin.configure({ webClientId }) 로 받으므로 "웹 클라이언트 ID" 를 넣는다.
+    # (k8s backend-secret 의 GOOGLE_CLIENT_ID 를 그대로 쓴다. 비어 있으면 Google 로그인을 거부한다)
+    client-ids: ${GOOGLE_OAUTH_CLIENT_IDS:${GOOGLE_CLIENT_ID:}}
   maps:
     id: ${GOOGLE_MAPS_ID}
 
@@ -124,11 +129,6 @@ naver:
     client-id: ${NAVER_API_HUB_CLIENT_ID:}
     client-secret: ${NAVER_API_HUB_CLIENT_SECRET:}
 
-coolsms:
-  api-key: ${COOLSMS_API_KEY}
-  api-secret: ${COOLSMS_API_SECRET}
-  sender: ${COOLSMS_SENDER}
-
 file:
   upload:
     local-dir: ${FILE_UPLOAD_DIR:./uploads}
@@ -145,3 +145,12 @@ app:
     email: ${ADMIN_EMAIL}
     password: ${ADMIN_PASSWORD}
     name: ${ADMIN_NAME:관리자}
+
+# 친환경 활동 인증 남용 방지 (사진 인증 / GPS 이동 인증)
+activity:
+  certify:
+    daily-limit-per-category: ${ACTIVITY_DAILY_LIMIT_PER_CATEGORY:2}
+    daily-limit-total: ${ACTIVITY_DAILY_LIMIT_TOTAL:6}
+    image-max-age-hours: ${ACTIVITY_IMAGE_MAX_AGE_HOURS:24}
+  transit:
+    daily-limit: ${TRANSIT_DAILY_LIMIT:6}

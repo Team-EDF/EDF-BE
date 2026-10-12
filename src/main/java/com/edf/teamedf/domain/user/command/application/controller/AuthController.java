@@ -7,6 +7,8 @@ import com.edf.teamedf.domain.user.command.application.dto.auth.NicknameCheckRes
 import com.edf.teamedf.domain.user.command.application.dto.auth.SignUpRequest;
 import com.edf.teamedf.domain.user.command.application.service.AppOAuth2Service;
 import com.edf.teamedf.domain.user.command.application.service.AuthService;
+import com.edf.teamedf.common.security.ratelimit.ClientIp;
+import com.edf.teamedf.common.security.ratelimit.RateLimiter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -15,6 +17,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
+
 @RestController
 @RequestMapping("/auth")
 @RequiredArgsConstructor
@@ -22,6 +26,7 @@ public class AuthController {
 
     private final AuthService authService;
     private final AppOAuth2Service appOAuth2Service;
+    private final RateLimiter rateLimiter;
 
     @PostMapping("/signup")
     public ResponseEntity<Void> signUp(@Valid @RequestBody SignUpRequest request) {
@@ -34,33 +39,37 @@ public class AuthController {
      * GET /auth/nickname/check?nickname=xxx
      */
     @GetMapping("/nickname/check")
-    public ResponseEntity<NicknameCheckResponse> checkNickname(@RequestParam String nickname) {
+    public ResponseEntity<NicknameCheckResponse> checkNickname(@RequestParam String nickname,
+                                                               HttpServletRequest httpRequest) {
+        rateLimiter.consume("nickname-check:ip:" + ClientIp.of(httpRequest), 60, Duration.ofMinutes(1),
+                "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요.");
         boolean available = authService.isNicknameAvailable(nickname);
         return ResponseEntity.ok(new NicknameCheckResponse(available));
     }
 
     @PostMapping("/login")
-    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
-        AuthService.TokenPair pair = authService.login(request);
+    public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request,
+                                              HttpServletRequest httpRequest) {
+        AuthService.TokenPair pair = authService.login(request, ClientIp.of(httpRequest));
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, pair.refreshCookie().toString())
                 .body(new AuthResponse(pair.accessToken()));
     }
 
     @PostMapping("/oauth2/app")
-    public ResponseEntity<?> appSocialLogin(@Valid @RequestBody AppOAuthLoginRequest request) {
-        AuthService.TokenPair pair;
-        try {
-            pair = appOAuth2Service.loginOrSignUpFromApp(
-                    request.provider(),
-                    request.token(),
-                    Boolean.TRUE.equals(request.termsAgreed())
-                            && Boolean.TRUE.equals(request.privacyAgreed())
-                            && Boolean.TRUE.equals(request.ageConfirmed()));
-        } catch (IllegalArgumentException e) {
-            // 앱이 "CONSENT_REQUIRED" 를 보고 약관 동의 화면을 띄울 수 있도록 메시지를 그대로 내려준다.
-            return ResponseEntity.badRequest().body(java.util.Map.of("message", String.valueOf(e.getMessage())));
-        }
+    public ResponseEntity<AuthResponse> appSocialLogin(@Valid @RequestBody AppOAuthLoginRequest request,
+                                                       HttpServletRequest httpRequest) {
+        // 토큰 검증마다 Google 을 호출하므로 IP 당 횟수를 제한한다.
+        rateLimiter.consume("social-login:ip:" + ClientIp.of(httpRequest), 30, Duration.ofMinutes(10),
+                "로그인 시도가 너무 많습니다. 잠시 후 다시 시도해 주세요.");
+        // 실패는 ResponseStatusException 으로 400/401/403/409 와 message 가 내려간다.
+        // 앱은 message 의 "CONSENT_REQUIRED" 를 보고 약관 동의 화면을 띄운다.
+        AuthService.TokenPair pair = appOAuth2Service.loginOrSignUpFromApp(
+                request.provider(),
+                request.token(),
+                Boolean.TRUE.equals(request.termsAgreed())
+                        && Boolean.TRUE.equals(request.privacyAgreed())
+                        && Boolean.TRUE.equals(request.ageConfirmed()));
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, pair.refreshCookie().toString())
                 .body(new AuthResponse(pair.accessToken()));

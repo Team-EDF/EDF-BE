@@ -54,7 +54,17 @@ public class UploadedImage {
     @Column(name = "reference_id")
     private Long referenceId;
 
+    /** 파일 내용의 SHA-256 (hex). 같은 사진을 다시 올려 인증을 반복하는 것을 막는 데 쓴다. */
+    @Column(name = "content_hash", length = 64)
+    private String contentHash;
+
     @CreationTimestamp
     @Column(name = "created_at", updatable = false)
     private LocalDateTime createdAt;
+
+    /** 이미지를 도메인 엔티티에 연결한다 (예: 활동 인증에 사용됨 → ECO_ACTIVITY + activityId). */
+    public void attachTo(ReferenceType referenceType, Long referenceId) {
+        this.referenceType = referenceType;
+        this.referenceId = referenceId;
+    }
 }

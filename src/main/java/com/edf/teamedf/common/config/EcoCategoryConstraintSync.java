@@ -1,6 +1,7 @@
 package com.edf.teamedf.common.config;
 
 import com.edf.teamedf.domain.activity.command.domain.EcoCategory;
+import com.edf.teamedf.domain.image.command.domain.ReferenceType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -35,16 +36,22 @@ public class EcoCategoryConstraintSync implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        String allowed = Arrays.stream(EcoCategory.values())
+        sync("eco_activities", "category", CONSTRAINT, EcoCategory.values());
+        // 업로드 이미지 참조 유형에 ECO_ACTIVITY(활동 사진 인증)를 추가했으므로 같은 방식으로 맞춘다.
+        sync("uploaded_images", "reference_type", "uploaded_images_reference_type_check", ReferenceType.values());
+    }
+
+    private void sync(String table, String column, String constraint, Enum<?>[] values) {
+        String allowed = Arrays.stream(values)
                 .map(c -> "'" + c.name() + "'")
                 .collect(Collectors.joining(", "));
         try {
-            jdbcTemplate.execute("ALTER TABLE eco_activities DROP CONSTRAINT IF EXISTS " + CONSTRAINT);
-            jdbcTemplate.execute("ALTER TABLE eco_activities ADD CONSTRAINT " + CONSTRAINT
-                    + " CHECK (category IN (" + allowed + "))");
-            log.info("eco_activities.category 제약을 enum 값 목록과 맞췄습니다: {}", allowed);
+            jdbcTemplate.execute("ALTER TABLE " + table + " DROP CONSTRAINT IF EXISTS " + constraint);
+            jdbcTemplate.execute("ALTER TABLE " + table + " ADD CONSTRAINT " + constraint
+                    + " CHECK (" + column + " IN (" + allowed + "))");
+            log.info("{}.{} 제약을 enum 값 목록과 맞췄습니다: {}", table, column, allowed);
         } catch (Exception e) {
-            log.warn("eco_activities.category 제약 동기화 실패 (서버 기동은 계속): {}", e.toString());
+            log.warn("{}.{} 제약 동기화 실패 (서버 기동은 계속): {}", table, column, e.toString());
         }
     }
 }

@@ -27,6 +27,24 @@ public interface EcoActivityRepository extends JpaRepository<EcoActivity, Long> 
 
     long countByUser_UserIdAndCreatedAtBetween(Long userId, LocalDateTime from, LocalDateTime to);
 
+    long countByUser_UserIdAndCategoryAndCreatedAtGreaterThanEqual(Long userId, EcoCategory category, LocalDateTime from);
+
+    long countByUser_UserIdAndCategoryInAndCreatedAtGreaterThanEqual(
+            Long userId, java.util.Collection<EcoCategory> categories, LocalDateTime from);
+
+    /** 이미 인증된 이동 중 시간이 겹치는 것이 있는지 (같은 경로 재전송·겹치는 이동 중복 인증 방지). */
+    @Query("""
+            select count(a) > 0 from EcoActivity a
+            where a.user.userId = :userId
+              and a.category = :category
+              and a.tripStartMs is not null and a.tripEndMs is not null
+              and a.tripStartMs < :endMs and a.tripEndMs > :startMs
+            """)
+    boolean existsOverlappingTrip(@Param("userId") Long userId,
+                                  @Param("category") EcoCategory category,
+                                  @Param("startMs") long startMs,
+                                  @Param("endMs") long endMs);
+
     @Query("select coalesce(sum(a.savedCarbon), 0) from EcoActivity a where a.user.userId = :userId")
     Double sumSavedCarbonByUserId(@Param("userId") Long userId);
 
