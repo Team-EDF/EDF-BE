@@ -115,7 +115,11 @@ public class ImageUploadService {
         } catch (org.springframework.web.client.HttpClientErrorException e) {
             int status = e.getStatusCode().value();
             if (status == 413) throw new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, "사진은 10MB 이하로 올려 주세요.");
-            if (status == 400 || status == 422) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "영수증을 읽지 못했어요. 선명한 사진으로 다시 시도해 주세요.");
+            // AI가 같은 영수증이라고 판단한 경우 (이미 등록한 영수증 재업로드)
+            if (status == 409) throw new ResponseStatusException(HttpStatus.CONFLICT, aiDetail(e, "이미 등록한 영수증이에요."));
+            // 영수증이 아니거나 글자를 읽을 수 없는 경우: AI가 사유를 문구로 내려준다.
+            if (status == 400 || status == 422) throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    aiDetail(e, "영수증을 읽지 못했어요. 선명한 사진으로 다시 시도해 주세요."));
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "영수증 분석 서버에 연결하지 못했어요.");
         } catch (Exception e) {
             log.error("OCR extraction failed", e);
@@ -187,6 +191,16 @@ public class ImageUploadService {
         if (value == null) return null;
         String str = value.toString();
         return str.length() > maxLength ? str.substring(0, maxLength) : str;
+    }
+
+    /** AI 에러 응답({"detail": "..."})의 안내 문구를 꺼낸다. 형식이 다르면 기본 문구를 쓴다. */
+    private String aiDetail(org.springframework.web.client.HttpClientErrorException e, String fallback) {
+        try {
+            Map<?, ?> body = objectMapper.readValue(e.getResponseBodyAsString(), Map.class);
+            if (body.get("detail") instanceof String detail && !detail.isBlank()) return detail;
+        } catch (Exception ignored) {
+        }
+        return fallback;
     }
 
     private ConsumptionRecord saveFailedReceiptRecord(User user, String errorMessage) {
